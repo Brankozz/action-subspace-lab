@@ -1,0 +1,1451 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta charset="utf-8">
+<title>动作子空间分析台</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a lab bench. One control strip on top, a row of readouts, then paired instruments (feature space beside trajectories). */
+:root {
+  --bg: #eef1f4; --panel: #fcfcfb; --ink: #14181d; --ink2: #4a525c; --muted: #6f7882; --line: #d5dbe2; --grid: #e7ebef;
+  --accent: #2a78d6; --accent-ink: #ffffff; --demo: #8a939e;
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4; --s6: #008300; --s7: #6250d6; --s8: #e34948;
+  --is-dark: 0;
+  --sans: "Instrument Sans", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1215; --panel: #1a1a19; --ink: #f0efec; --ink2: #c3c2b7; --muted: #979da4; --line: #31363c; --grid: #272b30;
+    --accent: #3987e5; --accent-ink: #0f1215; --demo: #7b838c;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181; --s6: #008300; --s7: #9085e9; --s8: #e66767;
+    --is-dark: 1; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1215; --panel: #1a1a19; --ink: #f0efec; --ink2: #c3c2b7; --muted: #979da4; --line: #31363c; --grid: #272b30;
+  --accent: #3987e5; --accent-ink: #0f1215; --demo: #7b838c;
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181; --s6: #008300; --s7: #9085e9; --s8: #e66767;
+  --is-dark: 1; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 14px; line-height: 1.5; }
+.wrap { max-width: 1320px; margin: 0 auto; padding-inline: 20px; padding-block: 22px 48px; display: flex; flex-direction: column; gap: 16px; }
+header h1 { font-size: 22px; font-weight: 600; margin: 0; letter-spacing: -0.01em; text-wrap: balance; }
+header p { margin: 4px 0 0; color: var(--ink2); max-width: 70ch; }
+.strip { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; }
+.row { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; }
+.row > * { min-width: 0; }
+.lab { font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.field { display: flex; flex-direction: column; gap: 3px; }
+select, input[type="number"], input[type="text"], input[type="password"] { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 5px 8px; max-width: 100%; }
+input[type="number"] { width: 78px; font-family: var(--mono); font-size: 13px; }
+select:focus-visible, input:focus-visible, button:focus-visible, .btn:focus-within, canvas:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button, .btn { font: inherit; font-weight: 500; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 5px 11px; cursor: pointer; }
+button:hover, .btn:hover { border-color: var(--muted); }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+button[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: var(--panel); }
+.seg { display: flex; flex-wrap: wrap; gap: 6px; }
+.note { color: var(--ink2); font-size: 13px; }
+.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+#status { color: var(--muted); font-size: 13px; }
+#status.err { color: var(--s8); }
+#drop { border: 1px dashed var(--line); border-radius: 4px; padding: 5px 11px; color: var(--ink2); font-size: 13px; }
+#drop.over { border-color: var(--accent); color: var(--ink); }
+details summary { cursor: pointer; color: var(--ink2); font-weight: 500; }
+details .inner { display: flex; flex-direction: column; gap: 10px; padding-top: 10px; }
+.comp { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.comp input[type="text"] { width: 110px; font-family: var(--mono); font-size: 13px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.tile { background: var(--panel); padding: 12px 14px; display: flex; flex-direction: column; gap: 2px; }
+.tile .v { font-family: var(--mono); font-size: 24px; font-weight: 500; font-variant-numeric: tabular-nums; line-height: 1.2; }
+.tile .k { color: var(--ink2); font-size: 13px; }
+.tile .c { color: var(--muted); font-size: 12px; font-family: var(--mono); }
+.grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 860px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.card h2 { font-size: 15px; font-weight: 600; margin: 0; }
+.card .head { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: space-between; }
+.card .how { color: var(--ink2); font-size: 13px; margin: 0; }
+canvas { width: 100%; height: 300px; display: block; touch-action: pan-y; }
+canvas.tall { height: 380px; }
+canvas.drag { cursor: grab; touch-action: none; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--ink2); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { width: 18px; height: 0; border-top: 2px solid; display: inline-block; }
+.legend i.dash { border-top-style: dashed; }
+.legend i.dot { width: 9px; height: 9px; border: 0; border-radius: 50%; }
+.legend i.ring { width: 9px; height: 9px; border: 2px solid; border-radius: 50%; }
+.legend i.ramp { width: 70px; height: 8px; border: 0; border-radius: 2px; }
+.sampler { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: flex-end; padding-top: 4px; border-top: 1px solid var(--line); }
+.sampler .field { min-width: 0; }
+.sampler input[type="range"] { width: 120px; accent-color: var(--accent); }
+.tablewrap { overflow-x: auto; }
+.card.wide { grid-column: 1 / -1; }
+.split { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 16px; align-items: start; }
+@media (max-width: 860px) { .split { grid-template-columns: minmax(0, 1fr); } }
+canvas#cvMani { height: 440px; }
+.split .side { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.bars { display: flex; flex-direction: column; gap: 4px; }
+.bars button { display: grid; grid-template-columns: 78px minmax(0, 1fr) 58px; gap: 8px; align-items: center; padding: 3px 6px; border: 1px solid transparent; background: none; text-align: left; font-size: 12px; color: var(--ink2); }
+.bars button:hover { border-color: var(--line); }
+.bars button[aria-pressed="true"] { background: var(--bg); border-color: var(--line); color: var(--ink); }
+.bars .track { height: 8px; background: var(--grid); border-radius: 2px; overflow: hidden; }
+.bars .fill { display: block; height: 100%; background: var(--s1); border-radius: 2px; }
+.bars .num { font-family: var(--mono); text-align: right; }
+canvas#cvEp { height: 330px; }
+table.compact th:first-child, table.compact td:first-child { min-width: 0; white-space: nowrap; }
+table.compact th.txt, table.compact td.txt { text-align: left; }
+table.compact td.txt { font-family: var(--sans); white-space: normal; min-width: 150px; }
+table.compact tbody tr { cursor: default; }
+.sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; }
+pre.log { margin: 0; white-space: pre-wrap; word-break: break-word; font-family: var(--mono); font-size: 12px; line-height: 1.5; background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 10px; max-height: 280px; overflow: auto; }
+#llmModel, #llmBase, #llmKey { width: 230px; }
+#evStatus { color: var(--muted); font-size: 13px; }
+#evStatus.err { color: var(--s8); }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { text-align: right; padding: 6px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; white-space: normal; min-width: 220px; }
+th { color: var(--muted); font-weight: 600; font-size: 12px; }
+td { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+td:first-child { font-family: var(--sans); }
+tbody tr { cursor: pointer; }
+tbody tr:hover td { background: var(--bg); }
+tbody tr.sel td { background: var(--bg); font-weight: 600; }
+#tip { position: fixed; z-index: 10; pointer-events: none; background: var(--ink); color: var(--panel); padding: 6px 9px; border-radius: 4px; font-size: 12px; line-height: 1.45; max-width: 300px; }
+#tip b { font-weight: 600; }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>动作子空间分析台</h1>
+    <p>检验一组轨迹是否等于“共用部分 + 低秩偏差”，查看它们在子空间里的分布，并从子空间里采样出新轨迹。所有计算都在浏览器里完成，上传的数据不会离开本机。</p>
+  </header>
+
+  <section class="strip" aria-label="数据">
+    <div class="row">
+      <span class="lab">示例数据</span>
+      <div class="seg" id="samples">
+        <button type="button" data-sample="libero_spatial">LIBERO-Spatial</button>
+        <button type="button" data-sample="libero_object">LIBERO-Object</button>
+        <button type="button" data-sample="libero_goal">LIBERO-Goal</button>
+        <button type="button" data-sample="libero_10">LIBERO-10</button>
+        <button type="button" data-sample="synthetic">合成数据</button>
+      </div>
+      <label class="btn" for="file">上传数据<input type="file" id="file" multiple accept=".parquet,.csv,.json,.npy" hidden></label>
+      <span id="drop">或把 parquet / csv / json / npy 文件拖到这里</span>
+    </div>
+    <div class="row">
+      <div class="field"><label class="lab" for="group">分析对象</label><select id="group"></select></div>
+      <div class="field"><label class="lab" for="preset">信号</label><select id="preset"></select></div>
+      <div class="field"><label class="lab" for="len">归一化长度</label><input type="number" id="len" min="16" max="256" step="8" value="128"></div>
+      <div class="field"><label class="lab" for="hor">动作块步数</label><input type="number" id="hor" min="2" max="128" value="16"></div>
+      <label class="row" for="align" style="gap:6px"><input type="checkbox" id="align" checked>时间对齐分析</label>
+      <label class="row" for="dedupe" style="gap:6px"><input type="checkbox" id="dedupe" checked>排除重复演示</label>
+      <span id="status" role="status"></span>
+    </div>
+    <div class="note" id="dsinfo"></div>
+    <details id="adv">
+      <summary>列映射与自定义信号</summary>
+      <div class="inner">
+        <div class="row" id="mapping" hidden>
+          <div class="field"><label class="lab" for="mapEp">演示编号列</label><select id="mapEp"></select></div>
+          <div class="field"><label class="lab" for="mapGroup">分组列</label><select id="mapGroup"></select></div>
+          <div class="field"><label class="lab" for="mapOrder">时间顺序列</label><select id="mapOrder"></select></div>
+        </div>
+        <div class="note">信号由若干分量拼接而成。维度写成 <span class="mono">0-2,6</span> 这样的形式，留空表示全部维度；勾选“累加”会把逐步增量积分成轨迹。</div>
+        <div id="comps"></div>
+        <div class="row"><button type="button" id="addComp">添加分量</button><button type="button" class="primary" id="applyComps">应用自定义信号</button></div>
+      </div>
+    </details>
+  </section>
+
+  <section class="tiles" id="tiles" aria-label="指标"></section>
+
+  <section class="grid">
+    <div class="card">
+      <div class="head">
+        <h2>特征空间</h2>
+        <div class="row">
+          <select id="fx" aria-label="横轴"></select><select id="fy" aria-label="纵轴"></select>
+          <select id="fcolor" aria-label="着色"><option value="len">按演示时长着色</option><option value="group">按分组着色</option><option value="search">按搜索结果着色</option></select>
+          <select id="fstate" aria-label="测试状态" hidden></select>
+        </div>
+      </div>
+      <canvas id="cvFeat" class="tall" tabindex="0" aria-label="演示在子空间里的坐标散点图"></canvas>
+      <div class="legend" id="lgFeat"></div>
+      <p class="how">每个点是一条演示在子空间里的坐标。悬停可在右侧高亮对应轨迹，点击可选中它并在下方查看事件划分。着色方式可以在上方切换，含义见图例。</p>
+    </div>
+
+    <div class="card">
+      <div class="head">
+        <h2>轨迹与采样</h2>
+        <div class="row">
+          <div class="seg"><button type="button" id="mode3d" aria-pressed="true">三维路径</button><button type="button" id="modeTs" aria-pressed="false">逐维曲线</button></div>
+          <select id="d0" aria-label="X 维"></select><select id="d1" aria-label="Y 维"></select><select id="d2" aria-label="Z 维"></select>
+        </div>
+      </div>
+      <canvas id="cvTraj" class="tall drag" tabindex="0" aria-label="真实轨迹、均值轨迹与采样轨迹"></canvas>
+      <div class="legend" id="lgTraj"></div>
+      <div class="sampler">
+        <div class="field"><label class="lab" for="smodel">采样模型</label><select id="smodel"><option value="linear">均值 + 线性子空间</option><option value="aligned">共用路径 + 形状子空间 + 真实时间规整</option></select></div>
+        <div class="field"><label class="lab" for="sk">子空间维数 k</label><input type="number" id="sk" min="0" max="12" value="3"></div>
+        <div class="field"><label class="lab" for="stemp">温度</label><input type="number" id="stemp" min="0" max="3" step="0.1" value="1"></div>
+        <div class="field"><label class="lab" for="sn">条数</label><input type="number" id="sn" min="0" max="60" value="12"></div>
+        <button type="button" class="primary" id="resample">重新采样</button>
+      </div>
+      <div class="sampler" style="border-top:0;padding-top:0">
+        <div class="field"><label class="lab" for="z0">手动坐标 z1 <span class="mono" id="z0v">0.0σ</span></label><input type="range" id="z0" min="-3" max="3" step="0.1" value="0"></div>
+        <div class="field"><label class="lab" for="z1">z2 <span class="mono" id="z1v">0.0σ</span></label><input type="range" id="z1" min="-3" max="3" step="0.1" value="0"></div>
+        <div class="field"><label class="lab" for="z2">z3 <span class="mono" id="z2v">0.0σ</span></label><input type="range" id="z2" min="-3" max="3" step="0.1" value="0"></div>
+        <button type="button" id="zreset">归零</button>
+      </div>
+      <p class="how">拖动画布可旋转。滑动 z 可以看到沿每个基方向移动时轨迹如何变形。</p>
+    </div>
+
+    <div class="card wide" id="searchCard">
+      <div class="head"><h2>在训练集空间里搜索测试集的解</h2><span class="note" id="srchInfo"></span></div>
+      <div class="split" id="srchBody">
+        <div class="side">
+          <div class="tablewrap"><table id="srchTbl" class="compact"><thead></thead><tbody></tbody></table></div>
+          <div class="tablewrap"><table id="srchPc" class="compact"><thead></thead><tbody></tbody></table></div>
+        </div>
+        <div class="side">
+          <span class="lab">每个测试状态被多少条训练演示解出（点击查看该状态）</span>
+          <div class="bars" id="srchBars"></div>
+        </div>
+      </div>
+      <p class="how" id="srchHow"></p>
+    </div>
+
+    <div class="card wide">
+      <div class="head">
+        <h2>流形形状</h2>
+        <div class="row">
+          <select id="mKind" aria-label="点的含义">
+            <option value="chunk">每个动作块一个点</option>
+            <option value="traj">每条演示一个点（线性时间）</option>
+            <option value="aligned">每条演示一个点（时间对齐后）</option>
+          </select>
+          <select id="mEmbed" aria-label="嵌入方法">
+            <option value="pca">PCA（线性投影）</option>
+            <option value="isomap">Isomap（保持测地距离）</option>
+            <option value="diffusion">扩散映射</option>
+          </select>
+          <label class="row" for="mHull" style="gap:6px"><input type="checkbox" id="mHull" checked>凸包轮廓</label>
+          <span id="mStatus" role="status" class="note"></span>
+        </div>
+      </div>
+      <div class="split">
+        <canvas id="cvMani" class="drag" tabindex="0" aria-label="数据点在三维嵌入空间里的分布，可拖动旋转"></canvas>
+        <div class="side">
+          <div class="tablewrap"><table id="mTbl" class="compact"><thead></thead><tbody></tbody></table></div>
+          <p class="how" id="mVerdict"></p>
+        </div>
+      </div>
+      <div class="legend" id="lgMani"></div>
+      <p class="how">拖动可旋转，悬停看是哪条演示，点击选中它。对照组是与数据同均值、同协方差的高斯分布，也就是一个凸的椭球；数据和对照的差别才是形状带来的。测地距离是沿近邻图走的最短路；中点检验取两点连线的中点，看它离最近的数据点有多远（以典型近邻距离为单位），数值大说明连线离开了数据所在的区域。</p>
+    </div>
+
+    <div class="card wide">
+      <div class="head">
+        <h2>单条演示与事件划分</h2>
+        <div class="row">
+          <select id="epSel" aria-label="选择演示"></select>
+          <button type="button" id="evRule">按规则划分</button>
+          <button type="button" class="primary" id="evLlm">让模型划分</button>
+          <span id="evStatus" role="status"></span>
+        </div>
+      </div>
+      <canvas id="cvEp" tabindex="0" aria-label="选中演示的事件分段、速度和各维曲线"></canvas>
+      <div class="legend" id="lgEp"></div>
+      <div class="tablewrap"><table id="evTbl" class="compact"><thead></thead><tbody></tbody></table></div>
+      <p class="how" id="evNote"></p>
+      <details id="llmBox">
+        <summary>模型设置</summary>
+        <div class="inner">
+          <div class="row">
+            <div class="field"><label class="lab" for="llmProvider">提供方</label><select id="llmProvider"><option value="claude">Claude（Anthropic）</option><option value="openai">OpenAI 或兼容接口</option></select></div>
+            <div class="field"><label class="lab" for="llmModel">模型</label><input type="text" id="llmModel" value="claude-opus-5-5" autocomplete="off" spellcheck="false"></div>
+            <div class="field" id="llmBaseField" hidden><label class="lab" for="llmBase">接口地址</label><input type="text" id="llmBase" value="https://api.openai.com/v1" autocomplete="off" spellcheck="false"></div>
+            <div class="field"><label class="lab" for="llmKey">API 密钥</label><input type="password" id="llmKey" autocomplete="off"></div>
+          </div>
+          <div class="note">点击“让模型划分”后，这条演示的任务指令和数值摘要会发送给所选的服务商。密钥只保存在当前页面的内存里，刷新后需要重新填写。</div>
+          <details><summary>发送的内容与模型的原始回复</summary><div class="inner"><pre class="log" id="llmLog">还没有发送过请求。</pre></div></details>
+        </div>
+      </details>
+    </div>
+
+    <div class="card">
+      <div class="head"><h2>累计解释方差</h2></div>
+      <canvas id="cvSpec" aria-label="累计解释方差随子空间维数的变化"></canvas>
+      <div class="legend" id="lgSpec"></div>
+      <p class="how">减去共用部分后，前 k 个基能解释多少偏差。对照组保留每条轨迹的平滑程度但打乱了彼此的对应关系，真实数据应明显高于对照。</p>
+    </div>
+
+    <div class="card">
+      <div class="head"><h2>留出重建残差</h2></div>
+      <canvas id="cvHeld" aria-label="留出重建残差随子空间维数的变化"></canvas>
+      <div class="legend" id="lgHeld"></div>
+      <p class="how">用其余演示拟合基，重建没见过的演示。1.0 表示只用共用部分，越低越好。这是“共同的基”是否真实存在的检验。</p>
+    </div>
+
+    <div class="card">
+      <div class="head"><h2>动作块流形</h2><span class="note mono" id="chunkInfo"></span></div>
+      <canvas id="cvChunk" aria-label="动作块降到二维后的散点图，按进度着色"></canvas>
+      <div class="legend" id="lgChunk"></div>
+      <p class="how">每个点是一个动作块，颜色表示它在演示中的进度。如果点沿着一条按颜色排列的曲线分布，说明知道进度就基本知道接下来的动作。</p>
+    </div>
+
+    <div class="card">
+      <div class="head"><h2>时间规整函数</h2></div>
+      <canvas id="cvWarp" aria-label="每条演示相对共用路径的时间偏移"></canvas>
+      <div class="legend" id="lgWarp"></div>
+      <p class="how">每条线是一条演示相对共用路径的时间偏移。平线表示节奏一致，跳变表示在该时刻停顿或加速。</p>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="head"><h2>各分组对比</h2><button type="button" id="runAll">重新计算全部分组</button></div>
+    <div class="tablewrap"><table id="tbl"><thead></thead><tbody></tbody></table></div>
+    <p class="how" id="tblNote">分组较多时不会自动计算，点击“计算全部分组”后每个分组一行。</p>
+  </section>
+</div>
+<div id="tip" hidden></div>
+
+<script src="analysis-core.js"></script>
+<script>
+'use strict';
+const Core = window.ActionCore;
+const $ = (id) => document.getElementById(id);
+const S = {
+  ds: null, table: null, mapping: null, comps: [], prep: null, group: 0, an: null, chunks: null, idx: [],
+  samples: [], hover: null, pinned: null, events: new Map(), segCache: new Map(), epHover: null, mani: null, mYaw: -0.6, mPitch: 0.35, mToken: 0, search: null, yaw: -0.7, pitch: 0.45, mode: '3d', dims: [0, 1, 2], hoverK: {}, overview: null, seed: 1,
+};
+
+/* ---------- colour ---------- */
+const cssVar = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const isDark = () => cssVar('--is-dark') === '1';
+const RAMP_LIGHT = ['#b7d3f6', '#6da7ec', '#2a78d6', '#184f95', '#0d366b'];
+const RAMP_DARK = ['#184f95', '#256abf', '#3987e5', '#86b6ef', '#cde2fb'];
+function ramp(t) {
+  const stops = isDark() ? RAMP_DARK : RAMP_LIGHT;
+  const x = Math.min(Math.max(t, 0), 1) * (stops.length - 1);
+  const i = Math.min(Math.floor(x), stops.length - 2), w = x - i;
+  const a = stops[i], b = stops[i + 1];
+  const ch = (h, o) => parseInt(h.slice(o, o + 2), 16);
+  const mix = (o) => Math.round(ch(a, o) * (1 - w) + ch(b, o) * w);
+  return `rgb(${mix(1)},${mix(3)},${mix(5)})`;
+}
+const rampCss = () => `linear-gradient(90deg, ${(isDark() ? RAMP_DARK : RAMP_LIGHT).join(',')})`;
+const catColor = (g) => (g < 8 ? cssVar('--s' + (g + 1)) : cssVar('--demo'));
+
+/* ---------- canvas helpers ---------- */
+function setup(cv) {
+  const dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
+  if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+  const ctx = cv.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  ctx.font = '11px ' + cssVar('--mono');
+  return { ctx, w, h };
+}
+function ticks(lo, hi, n) {
+  const span = hi - lo || 1, raw = span / n, mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const step = [1, 2, 5, 10].map((m) => m * mag).find((s) => s >= raw) || raw;
+  const out = [];
+  for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9 * span; v += step) out.push(Math.abs(v) < step * 1e-9 ? 0 : v);
+  return out;
+}
+const fmt = (v) => { const t = Math.abs(v) >= 100 ? v.toFixed(0) : Math.abs(v) >= 10 ? v.toFixed(1) : Math.abs(v) >= 1 ? v.toFixed(2) : v.toFixed(3); return t.includes('.') ? t.replace(/\.?0+$/, '') : t; };
+function axes(cv, xr, yr, o) {
+  const { ctx, w, h } = setup(cv);
+  const box = { l: 56, t: 10, r: w - 12, b: h - 34 };
+  const sx = (v) => box.l + ((v - xr[0]) / (xr[1] - xr[0] || 1)) * (box.r - box.l);
+  const sy = (v) => box.b - ((v - yr[0]) / (yr[1] - yr[0] || 1)) * (box.b - box.t);
+  ctx.strokeStyle = cssVar('--grid'); ctx.fillStyle = cssVar('--muted'); ctx.lineWidth = 1;
+  ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  for (const v of ticks(yr[0], yr[1], 5)) { ctx.beginPath(); ctx.moveTo(box.l, sy(v)); ctx.lineTo(box.r, sy(v)); ctx.stroke(); ctx.fillText(fmt(v), box.l - 6, sy(v)); }
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  for (const v of (o.xTicks || ticks(xr[0], xr[1], 6))) { ctx.beginPath(); ctx.moveTo(sx(v), box.t); ctx.lineTo(sx(v), box.b); ctx.stroke(); ctx.fillText(fmt(v), sx(v), box.b + 5); }
+  ctx.fillStyle = cssVar('--ink2'); ctx.font = '12px ' + cssVar('--sans');
+  if (o.xlabel) ctx.fillText(o.xlabel, (box.l + box.r) / 2, h - 15);
+  if (o.ylabel) { ctx.save(); ctx.translate(12, (box.t + box.b) / 2); ctx.rotate(-Math.PI / 2); ctx.textBaseline = 'middle'; ctx.fillText(o.ylabel, 0, 0); ctx.restore(); }
+  return { ctx, sx, sy, box, w, h };
+}
+function polyline(ctx, xs, ys, color, width, dash, alpha) {
+  ctx.save(); ctx.strokeStyle = color; ctx.lineWidth = width; ctx.globalAlpha = alpha == null ? 1 : alpha; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  ctx.setLineDash(dash || []); ctx.beginPath();
+  for (let i = 0; i < xs.length; i++) (i ? ctx.lineTo(xs[i], ys[i]) : ctx.moveTo(xs[i], ys[i]));
+  ctx.stroke(); ctx.restore();
+}
+function extent(vals, pad) {
+  let lo = Infinity, hi = -Infinity;
+  for (const v of vals) { if (v < lo) lo = v; if (v > hi) hi = v; }
+  if (!isFinite(lo)) return [0, 1];
+  const p = (hi - lo || Math.abs(hi) || 1) * (pad == null ? 0.06 : pad);
+  return [lo - p, hi + p];
+}
+const tip = $('tip');
+function showTip(e, html) { tip.innerHTML = html; tip.hidden = false; const x = Math.min(e.clientX + 14, window.innerWidth - tip.offsetWidth - 8); tip.style.left = Math.max(8, x) + 'px'; tip.style.top = Math.max(8, e.clientY - tip.offsetHeight - 10) + 'px'; }
+const hideTip = () => { tip.hidden = true; };
+const hits = {};
+function nearest(id, e, maxDist) {
+  const r = $(id).getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
+  let best = null, bd = (maxDist || 16) ** 2;
+  for (const p of hits[id] || []) { const d = (p.x - x) ** 2 + (p.y - y) ** 2; if (d < bd) { bd = d; best = p; } }
+  return best;
+}
+const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+
+/* ---------- data ---------- */
+function setStatus(msg, err) { $('status').textContent = msg || ''; $('status').classList.toggle('err', !!err); }
+const pause = () => new Promise((r) => setTimeout(r, 20));
+function b64ToInt16(b64) { const bin = atob(b64), n = bin.length, u8 = new Uint8Array(n); for (let i = 0; i < n; i++) u8[i] = bin.charCodeAt(i); return new Int16Array(u8.buffer); }
+function fromPacked(j) {
+  const flat = {};
+  for (const f of j.fields) flat[f.name] = Float32Array.from(b64ToInt16(j.data[f.name]), (v) => v * f.scale);
+  let off = 0;
+  const episodes = j.episodes.map(([id, g, T]) => { const ep = { id, group: g, T, data: {} }; for (const f of j.fields) ep.data[f.name] = flat[f.name].subarray(off * f.dim, (off + T) * f.dim); off += T; return ep; });
+  return { name: j.name, fields: j.fields.map((f) => ({ name: f.name, dim: f.dim })), groups: j.groups, episodes };
+}
+function synthetic() {
+  const rnd = Core.makeRng(7), groups = ['合成任务 A', '合成任务 B', '合成任务 C'], episodes = [];
+  groups.forEach((_, g) => {
+    const base = [0, 1, 2].map(() => [0, 1, 2].map(() => rnd.normal() * 0.25));
+    const modes = [0, 1].map(() => [0, 1, 2].map(() => rnd.normal() * 0.08));
+    for (let n = 0; n < 40; n++) {
+      // Each demo pauses once, at progress `stop`, for a fraction `hold` of its moving time.
+      const T = 90 + Math.floor(rnd() * 90), a = [rnd.normal(), rnd.normal()], stop = 0.25 + rnd() * 0.4, hold = rnd() * 0.5;
+      const pos = new Float32Array(T * 3), act = new Float32Array(T * 3), begin = stop / (1 + hold), end = begin + hold / (1 + hold);
+      for (let t = 0; t < T; t++) {
+        const u = t / (T - 1), tau = u < begin ? u * (1 + hold) : u < end ? stop : stop + (u - end) * (1 + hold);
+        for (let d = 0; d < 3; d++) {
+          let v = 0;
+          for (let h = 0; h < 3; h++) v += base[h][d] * Math.sin((h + 1) * Math.PI * tau + d);
+          v += a[0] * modes[0][d] * Math.sin(Math.PI * tau) + a[1] * modes[1][d] * Math.sin(2 * Math.PI * tau) + rnd.normal() * 0.004;
+          pos[t * 3 + d] = v;
+        }
+      }
+      for (let t = 0; t < T; t++) for (let d = 0; d < 3; d++) act[t * 3 + d] = t + 1 < T ? pos[(t + 1) * 3 + d] - pos[t * 3 + d] : 0;
+      episodes.push({ id: episodes.length, group: g, T, data: { pos, action: act } });
+    }
+  });
+  return { name: '合成数据（真值：2 个形状模态 + 随机停顿）', fields: [{ name: 'pos', dim: 3 }, { name: 'action', dim: 3 }], groups, episodes };
+}
+
+/* Tabular sources (parquet / csv / records json) become a table, then a dataset through a column mapping. */
+function tableFromRows(rows) {
+  const names = Object.keys(rows[0] || {}), cols = [];
+  for (const name of names) {
+    const v = rows[0][name];
+    if (Array.isArray(v) || ArrayBuffer.isView(v)) { if (v.length && typeof v[0] !== 'object') cols.push({ name, kind: 'vec', dim: v.length }); }
+    else if (typeof v === 'number' || typeof v === 'bigint') cols.push({ name, kind: 'num' });
+    else if (typeof v === 'string') cols.push({ name, kind: 'str' });
+  }
+  return { rows, cols };
+}
+function parseCsv(text) {
+  const lines = text.split(/\r?\n/).filter((l) => l.length);
+  const split = (l) => { const out = []; let cur = '', q = false; for (const c of l) { if (c === '"') q = !q; else if (c === ',' && !q) { out.push(cur); cur = ''; } else cur += c; } out.push(cur); return out; };
+  const head = split(lines[0]).map((s) => s.trim());
+  const body = lines.slice(1).map(split);
+  const numeric = head.map((_, c) => body.slice(0, 50).every((r) => r[c] !== undefined && r[c].trim() !== '' && isFinite(+r[c])));
+  const fam = {};
+  head.forEach((name, c) => { const m = /^(.+?)[_.\[]?(\d+)\]?$/.exec(name); if (numeric[c] && m && m[1]) (fam[m[1]] = fam[m[1]] || []).push([+m[2], c]); });
+  const used = new Set(), vec = [];
+  for (const key in fam) if (fam[key].length >= 2) { fam[key].sort((a, b) => a[0] - b[0]); vec.push([key.replace(/[_.\[]+$/, ''), fam[key].map((p) => p[1])]); fam[key].forEach((p) => used.add(p[1])); }
+  const rows = body.map((r) => {
+    const o = {};
+    head.forEach((name, c) => { if (!used.has(c)) o[name] = numeric[c] ? +r[c] : (r[c] || '').trim(); });
+    for (const [name, idx] of vec) o[name] = idx.map((c) => +r[c]);
+    return o;
+  });
+  return tableFromRows(rows);
+}
+function guessMapping(table) {
+  const scalars = table.cols.filter((c) => c.kind !== 'vec').map((c) => c.name);
+  const pick = (re) => scalars.find((n) => re.test(n)) || '';
+  return { ep: pick(/episode|traj|demo|seq/i), group: pick(/task|group|class|label|category/i), order: pick(/frame_index|frame|step|timestamp|time|^t$/i) };
+}
+function datasetFromTable(table, map, name) {
+  const reserved = new Set([map.ep, map.group, map.order, 'index']);
+  const bookkeeping = /(^|[_.])(index|idx|id)$|timestamp|frame/i;
+  const fields = table.cols.filter((c) => c.kind === 'vec' || (c.kind === 'num' && !reserved.has(c.name) && !bookkeeping.test(c.name))).map((c) => ({ name: c.name, dim: c.kind === 'vec' ? c.dim : 1 }));
+  if (!fields.length) throw new Error('没有找到数值列。需要至少一列数值或一列数组。');
+  const byEp = new Map();
+  table.rows.forEach((r) => { const k = map.ep ? String(r[map.ep]) : '0'; if (!byEp.has(k)) byEp.set(k, []); byEp.get(k).push(r); });
+  const groups = [], gIndex = new Map(), episodes = [];
+  for (const [id, rows] of byEp) {
+    if (map.order) rows.sort((a, b) => Number(a[map.order]) - Number(b[map.order]));
+    const gName = map.group ? String(rows[0][map.group]) : '全部';
+    if (!gIndex.has(gName)) { gIndex.set(gName, groups.length); groups.push(gName); }
+    const ep = { id, group: gIndex.get(gName), T: rows.length, data: {} };
+    for (const f of fields) {
+      const a = new Float32Array(rows.length * f.dim);
+      rows.forEach((r, t) => { const v = r[f.name]; if (f.dim === 1 && typeof v !== 'object') a[t] = Number(v); else for (let d = 0; d < f.dim; d++) a[t * f.dim + d] = Number(v[d]); });
+      ep.data[f.name] = a;
+    }
+    episodes.push(ep);
+  }
+  const numericNames = groups.every((g) => /^-?\d+$/.test(g));
+  return { name, fields, groups: groups.map((g) => (numericNames && map.group ? `${map.group} = ${g}` : g)), episodes };
+}
+function datasetFromArrays(arr, name) {
+  const depth = (a) => (Array.isArray(a) ? 1 + depth(a[0]) : 0);
+  const eps = depth(arr) === 3 ? arr : [arr];
+  const dim = eps[0][0].length;
+  return { name, fields: [{ name: 'x', dim }], groups: ['全部'], episodes: eps.map((e, i) => ({ id: i, group: 0, T: e.length, data: { x: Float32Array.from(e.flat()) } })) };
+}
+function parseNpy(buf, name) {
+  const u8 = new Uint8Array(buf), dv = new DataView(buf);
+  if (u8[0] !== 0x93 || String.fromCharCode(...u8.slice(1, 6)) !== 'NUMPY') throw new Error('不是有效的 npy 文件。');
+  const major = u8[6], hl = major >= 2 ? dv.getUint32(8, true) : dv.getUint16(8, true), start = (major >= 2 ? 12 : 10) + hl;
+  const head = new TextDecoder().decode(u8.slice(major >= 2 ? 12 : 10, start));
+  const descr = /'descr':\s*'([^']+)'/.exec(head)[1], shape = /'shape':\s*\(([^)]*)\)/.exec(head)[1].split(',').map((s) => s.trim()).filter(Boolean).map(Number);
+  if (/'fortran_order':\s*True/.test(head)) throw new Error('暂不支持 Fortran 顺序的 npy。');
+  const types = { '<f4': Float32Array, '<f8': Float64Array, '<i2': Int16Array, '<i4': Int32Array, '|u1': Uint8Array };
+  if (!types[descr]) throw new Error('暂不支持的 npy 数据类型：' + descr);
+  const flat = new types[descr](buf.slice(start));
+  if (shape.length < 2 || shape.length > 3) throw new Error('npy 的形状需要是 [N, T, D] 或 [T, D]，实际为 [' + shape.join(', ') + ']。');
+  const [N, T, D] = shape.length === 3 ? shape : [1, shape[0], shape[1]];
+  const episodes = [];
+  for (let n = 0; n < N; n++) episodes.push({ id: n, group: 0, T, data: { x: Float32Array.from(flat.subarray(n * T * D, (n + 1) * T * D)) } });
+  return { name, fields: [{ name: 'x', dim: D }], groups: ['全部'], episodes };
+}
+async function loadFiles(files) {
+  try {
+    setStatus('读取中…');
+    await pause();
+    const first = files[0], ext = first.name.split('.').pop().toLowerCase(), label = files.length > 1 ? `${first.name} 等 ${files.length} 个文件` : first.name;
+    S.table = null;
+    let ds;
+    if (ext === 'parquet') {
+      const hp = await import('https://cdn.jsdelivr.net/npm/hyparquet@1.30.1/+esm');
+      let rows = [];
+      for (const f of files) rows = rows.concat(await hp.parquetReadObjects({ file: await f.arrayBuffer() }));
+      S.table = tableFromRows(rows);
+    } else if (ext === 'csv') {
+      S.table = parseCsv((await Promise.all(Array.from(files, (f) => f.text()))).map((t, i) => (i ? t.split(/\r?\n/).slice(1).join('\n') : t)).join('\n'));
+    } else if (ext === 'json') {
+      const j = JSON.parse(await first.text());
+      if (j && j.tasks && j.suite && !j.fields) {
+        if (!S.ds) throw new Error('先载入对应的演示数据，再载入搜索结果。');
+        S.search = j; setStatus('已载入搜索结果：' + Object.keys(j.tasks).length + ' 个任务'); run();
+        return;
+      }
+      if (j && j.fields && j.episodes && j.data) ds = fromPacked(j);
+      else if (Array.isArray(j) && Array.isArray(j[0])) ds = datasetFromArrays(j, label);
+      else if (Array.isArray(j)) S.table = tableFromRows(j);
+      else throw new Error('无法识别的 JSON 结构。支持记录数组、[N][T][D] 数组或本工具的打包格式。');
+    } else if (ext === 'npy') ds = parseNpy(await first.arrayBuffer(), label);
+    else throw new Error('不支持的文件类型：.' + ext);
+    if (S.table) {
+      if (!S.table.rows.length) throw new Error('文件里没有数据行。');
+      S.mapping = guessMapping(S.table);
+      S.tableName = label;
+      ds = datasetFromTable(S.table, S.mapping, label);
+    }
+    setDataset(ds);
+  } catch (err) { setStatus('读取失败：' + err.message, true); }
+}
+async function loadSample(key) {
+  try {
+    setStatus('载入示例…');
+    S.table = null;
+    if (key === 'synthetic') setDataset(synthetic());
+    else {
+      const r = await fetch('samples/' + key + '.json');
+      if (!r.ok) throw new Error('示例文件不可用（' + r.status + '）');
+      const ds = fromPacked(await r.json());
+      let search = null;
+      try { const q = await fetch('samples/search_' + key + '.json'); if (q.ok) search = await q.json(); } catch (err) { /* search results are optional */ }
+      setDataset(ds, search);
+    }
+    document.querySelectorAll('#samples button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.sample === key)));
+  } catch (err) {
+    if (S.ds) { setStatus('载入失败：' + err.message, true); return; }
+    setDataset(synthetic());
+    document.querySelectorAll('#samples button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.sample === 'synthetic')));
+    $('dsinfo').insertAdjacentText('beforeend', '。LIBERO 示例文件读取失败（' + err.message + '），已改用合成数据。');
+  }
+}
+
+/* ---------- dataset -> signal ---------- */
+function presetsFor(ds) {
+  const out = [], has = (n, d) => ds.fields.some((f) => f.name === n && f.dim >= d);
+  if (has('eepos', 3) && has('action', 7)) out.push({ name: '末端位置 + 夹爪', comps: [{ field: 'eepos', dims: [0, 1, 2] }, { field: 'action', dims: [6] }] });
+  if (has('observation.state', 3) && has('action', 2)) { const last = ds.fields.find((f) => f.name === 'action').dim - 1; out.push({ name: `observation.state[0-2] + action[${last}]（LIBERO 约定：末端位置 + 夹爪）`, comps: [{ field: 'observation.state', dims: [0, 1, 2] }, { field: 'action', dims: [last] }] }); }
+  for (const f of ds.fields) {
+    const all = Array.from({ length: f.dim }, (_, i) => i);
+    out.push({ name: `${f.name}（原始，${f.dim} 维）`, comps: [{ field: f.name, dims: all }] });
+    if (/action|delta|vel/i.test(f.name)) out.push({ name: `${f.name}（累加成轨迹）`, comps: [{ field: f.name, dims: all, cumsum: true }] });
+  }
+  return out;
+}
+function setDataset(ds, search) {
+  S.search = search || null;
+  S.ds = ds; S.overview = null; S.pinned = null; S.hover = null; S.events.clear(); S.segCache.clear();
+  S.presets = presetsFor(ds);
+  $('preset').innerHTML = S.presets.map((p, i) => `<option value="${i}">${esc(p.name)}</option>`).join('') + '<option value="custom">自定义</option>';
+  S.comps = S.presets[0].comps.map((c) => Object.assign({}, c));
+  const counts = ds.groups.map((_, g) => ds.episodes.filter((e) => e.group === g).length);
+  $('group').innerHTML = ds.groups.map((g, i) => `<option value="${i}">${esc(g)}（${counts[i]} 条）</option>`).join('') + (ds.groups.length > 1 ? `<option value="all">全部分组混合（${ds.episodes.length} 条）</option>` : '');
+  S.group = 0;
+  $('dsinfo').innerHTML = `<b>${esc(ds.name)}</b>：${ds.episodes.length} 条演示，${ds.groups.length} 个分组，字段 ${ds.fields.map((f) => `<span class="mono">${esc(f.name)}[${f.dim}]</span>`).join('、')}`;
+  $('mapping').hidden = !S.table;
+  if (S.table) {
+    const opts = '<option value="">（无）</option>' + S.table.cols.filter((c) => c.kind !== 'vec').map((c) => `<option>${esc(c.name)}</option>`).join('');
+    for (const [id, key] of [['mapEp', 'ep'], ['mapGroup', 'group'], ['mapOrder', 'order']]) { $(id).innerHTML = opts; $(id).value = S.mapping[key]; }
+  }
+  renderComps();
+  run();
+}
+function renderComps() {
+  $('comps').innerHTML = S.comps.map((c, i) => `<div class="comp"><select id="cf${i}" aria-label="字段">${S.ds.fields.map((f) => `<option${f.name === c.field ? ' selected' : ''}>${esc(f.name)}</option>`).join('')}</select>
+    <input type="text" id="cd${i}" aria-label="维度" placeholder="全部维度" value="${dimsText(c.dims)}">
+    <label for="cc${i}"><input type="checkbox" id="cc${i}"${c.cumsum ? ' checked' : ''}> 累加</label>
+    <button type="button" data-rm="${i}">移除</button></div>`).join('');
+}
+function dimsText(dims) {
+  const out = [];
+  for (let i = 0; i < dims.length; i++) { let j = i; while (j + 1 < dims.length && dims[j + 1] === dims[j] + 1) j++; out.push(j > i ? dims[i] + '-' + dims[j] : String(dims[i])); i = j; }
+  return out.join(',');
+}
+function parseDims(text, dim) {
+  if (!text.trim()) return Array.from({ length: dim }, (_, i) => i);
+  const out = [];
+  for (const part of text.split(',')) { const m = /^\s*(\d+)\s*(?:-\s*(\d+))?\s*$/.exec(part); if (!m) throw new Error('维度写法无法识别：' + part); for (let v = +m[1]; v <= (m[2] == null ? +m[1] : +m[2]); v++) { if (v >= dim) throw new Error(`维度 ${v} 超出范围（该字段只有 ${dim} 维）`); out.push(v); } }
+  return out;
+}
+function readComps() {
+  return S.comps.map((_, i) => { const field = $('cf' + i).value, dim = S.ds.fields.find((f) => f.name === field).dim; return { field, dims: parseDims($('cd' + i).value, dim), cumsum: $('cc' + i).checked }; });
+}
+function dimNames() { const out = []; for (const c of S.comps) for (const d of c.dims) out.push(`${c.field}[${d}]`); return out; }
+function prepare() {
+  const L = +$('len').value, key = JSON.stringify([S.ds.name, S.comps, L]);
+  if (S.prep && S.prep.key === key) return S.prep;
+  const fieldDims = {};
+  S.ds.fields.forEach((f) => { fieldDims[f.name] = f.dim; });
+  const signals = S.ds.episodes.map((ep) => Core.buildSignal(ep, S.comps, fieldDims));
+  const D = signals[0].D, res = signals.map((s) => Core.resample(s.data, s.T, D, L));
+  const mu = new Float64Array(D), std = new Float64Array(D);
+  for (const r of res) for (let i = 0; i < r.length; i++) mu[i % D] += r[i];
+  for (let d = 0; d < D; d++) mu[d] /= res.length * L;
+  for (const r of res) for (let i = 0; i < r.length; i++) std[i % D] += (r[i] - mu[i % D]) ** 2;
+  for (let d = 0; d < D; d++) std[d] = Math.sqrt(std[d] / (res.length * L)) + 1e-8;
+  const X = res.map((r) => Float64Array.from(r, (v, i) => v / std[i % D]));
+  // Episodes whose signal is identical to an earlier one (e.g. the same demo re-rendered under another camera).
+  const seen = new Map(), dupOf = new Int32Array(signals.length).fill(-1);
+  signals.forEach((sg, i) => {
+    let h = 2166136261 ^ sg.T;
+    for (let q = 0; q < sg.data.length; q++) { h ^= Math.round(sg.data[q] * 1e4) | 0; h = Math.imul(h, 16777619); }
+    const k = sg.T + ':' + (h >>> 0);
+    if (seen.has(k)) dupOf[i] = seen.get(k); else seen.set(k, i);
+  });
+  S.prep = { key, L, D, signals, std, X, globalMean: Core.meanOf(X), dupOf, numDup: dupOf.filter((v) => v >= 0).length };
+  S.overview = null; S.ovRunning = null;
+  return S.prep;
+}
+
+/* ---------- analysis ---------- */
+const analysisOpts = (n) => ({ kmax: 25, seed: 0, align: $('align').checked && n <= 600, band: Math.round(+$('len').value / 4), alignIters: 2 });
+async function run() {
+  if (!S.ds) return;
+  try {
+    setStatus('计算中…');
+    await pause();
+    const p = prepare();
+    const keep = (i) => !$('dedupe').checked || p.dupOf[i] < 0;
+    const inScope = S.ds.episodes.map((_, i) => i).filter((i) => S.group === 'all' || S.ds.episodes[i].group === S.group);
+    S.idx = inScope.filter(keep);
+    S.dropped = inScope.length - S.idx.length;
+    if (S.idx.length < 5) throw new Error(`这个分组只有 ${S.idx.length} 条${S.dropped ? '互不重复的' : ''}演示，至少需要 5 条。`);
+    const trajs = S.idx.map((i) => p.X[i]), opts = analysisOpts(trajs.length), t0 = performance.now();
+    S.an = Core.analyzeTrajectories(trajs, p.L, p.D, opts);
+    S.an.common = null;
+    if (S.group !== 'all' && S.ds.groups.length > 1) { let tot = 0; for (const x of trajs) for (let m = 0; m < x.length; m++) tot += (x[m] - p.globalMean[m]) ** 2; S.an.common = 1 - S.an.model.total / tot; }
+    const H = Math.max(2, +$('hor').value);
+    S.chunks = Core.analyzeChunks(S.idx.map((i) => p.signals[i]), p.std, H, 6000, 10);
+    S.lenRange = extent(S.idx.map((i) => S.ds.episodes[i].T), 0);
+    if (S.dimsKey !== p.key) { S.dims = [0, 1, 2].map((d) => Math.min(d, p.D - 1)); S.dimsKey = p.key; }
+    const names = dimNames(), opt = names.map((n, i) => `<option value="${i}">${esc(n)}</option>`).join('');
+    ['d0', 'd1', 'd2'].forEach((id, i) => { $(id).innerHTML = opt; $(id).value = S.dims[i]; });
+    const kOpt = S.an.model.comps.map((_, i) => `<option value="${i}">PC${i + 1}（${(S.an.evr[i] * 100).toFixed(0)}%）</option>`).join('');
+    $('fx').innerHTML = kOpt; $('fy').innerHTML = kOpt; $('fx').value = 0; $('fy').value = Math.min(1, S.an.model.comps.length - 1);
+    const sr = curSearch();
+    $('fcolor').querySelector('[value="search"]').disabled = !sr;
+    $('fcolor').value = sr ? 'search' : S.group === 'all' ? 'group' : 'len';
+    $('fstate').innerHTML = sr ? '<option value="all">全部测试状态</option>' + Array.from({ length: sr.num_states }, (_, k) => `<option value="${k}">测试状态 ${k + 1}</option>`).join('') : '';
+    $('fstate').hidden = !sr;
+    $('smodel').querySelector('[value="aligned"]').disabled = !S.an.alignedModel;
+    $('mKind').querySelector('[value="aligned"]').disabled = !S.an.H;
+    if (!S.an.H && $('mKind').value === 'aligned') $('mKind').value = 'chunk';
+    if (!S.an.alignedModel) $('smodel').value = 'linear';
+    S.pinned = 0; S.hover = null; S.epHover = null;
+    $('epSel').innerHTML = S.idx.map((i, n) => `<option value="${n}">演示 ${esc(S.ds.episodes[i].id)}（${S.ds.episodes[i].T} 步）</option>`).join('');
+    drawSamples();
+    renderAll();
+    const skipped = ($('align').checked && !opts.align ? '，演示超过 600 条，已跳过时间对齐' : '') + (p.numDup && !$('dedupe').checked ? `。注意：数据里有 ${p.numDup} 条演示与其他演示数值完全相同，会让低秩和留出重建的结果虚高` : '');
+    setStatus(`已分析 ${trajs.length} 条演示，用时 ${((performance.now() - t0) / 1000).toFixed(1)} 秒${skipped}`);
+    computeManifold();
+    if (!S.overview && S.ds.groups.length > 1 && S.ds.groups.length <= 20 && S.ds.episodes.length <= 3000) runOverview();
+  } catch (err) { setStatus(err.message, true); }
+}
+function sampleOne(z, rnd) {
+  const an = S.an, p = S.prep;
+  if ($('smodel').value === 'aligned' && an.alignedModel) {
+    const a = Core.sampleLinear(an.alignedModel, an.alignedSigma, z);
+    return rnd ? Core.unwarp(a, an.H[Math.floor(rnd() * an.H.length)], p.L, p.D) : a;
+  }
+  return Core.sampleLinear(an.model, an.sigma, z);
+}
+function coordsOf(x) { const m = S.an.model, r = Float64Array.from(x, (v, i) => v - m.mean[i]); return m.comps.map((v) => Core.dot(r, v)); }
+function drawSamples() {
+  const rnd = Core.makeRng(S.seed++), k = Math.max(0, +$('sk').value), temp = +$('stemp').value, n = Math.max(0, +$('sn').value);
+  S.samples = [];
+  for (let i = 0; i < n; i++) { const x = sampleOne(Array.from({ length: k }, () => rnd.normal() * temp), rnd); S.samples.push({ x, z: coordsOf(x) }); }
+}
+function sliderTraj() {
+  const z = [+$('z0').value, +$('z1').value, +$('z2').value];
+  if (z.every((v) => v === 0)) return null;
+  const x = sampleOne(z, null);
+  return { x, z: coordsOf(x) };
+}
+
+/* ---------- rendering ---------- */
+function legend(id, items) { $(id).innerHTML = items.map((it) => `<span><i class="${it.cls || ''}" style="${it.style}"></i>${esc(it.label)}</span>`).join(''); }
+function renderTiles() {
+  const an = S.an, pct = (v) => (v * 100).toFixed(0) + '%', f2 = (v) => v.toFixed(2);
+  const k90 = Core.kAt(an.evr, 0.9), k90s = Core.kAt(an.evrSurrogate, 0.9), k5 = Math.min(5, an.kmax);
+  const t = [
+    { v: String(an.n), k: '参与分析的演示数', c: S.dropped ? `另有 ${S.dropped} 条重复演示已排除` : `归一化长度 ${S.prep.L} · ${S.prep.D} 维` },
+    { v: an.common == null ? '—' : pct(an.common), k: '共用部分解释的方差', c: an.common == null ? '混合模式下不适用' : '相对整个数据集的均值' },
+    { v: k90 == null ? '>' + an.evr.length : String(k90), k: '解释 90% 偏差所需维数', c: `对照 ${k90s == null ? '>' + an.evrSurrogate.length : k90s}` },
+    { v: f2(Core.participationRatio(an.model)), k: '有效秩', c: '偏差的参与比' },
+    { v: f2(an.heldout[k5]), k: `留出残差（k=${k5}）`, c: `对照 ${f2(an.heldoutSurrogate[k5])}` },
+    { v: an.alignedHeldout ? f2(an.alignedHeldout[0]) : '—', k: '只用共用路径 + 时间规整', c: an.alignedHeldout ? `对照 ${f2(an.alignedHeldoutSurrogate[0])}` : '未做时间对齐' },
+  ];
+  $('tiles').innerHTML = t.map((x) => `<div class="tile"><span class="v">${x.v}</span><span class="k">${x.k}</span><span class="c">${x.c}</span></div>`).join('');
+}
+function lineChart(id, series, yr, ylabel, refY) {
+  const kmax = S.an.kmax, x0 = series[0].x0, a = axes($(id), [x0, kmax], yr, { xlabel: '子空间维数 k', ylabel, xTicks: ticks(x0, kmax, 6).filter(Number.isInteger) });
+  if (refY != null) polyline(a.ctx, [a.box.l, a.box.r], [a.sy(refY), a.sy(refY)], cssVar('--muted'), 1, [2, 3]);
+  const hk = S.hoverK[id];
+  if (hk != null) polyline(a.ctx, [a.sx(hk), a.sx(hk)], [a.box.t, a.box.b], cssVar('--muted'), 1);
+  for (const s of series) {
+    const xs = [], ys = [];
+    for (let i = 0; i < s.y.length && i + s.x0 <= kmax; i++) { xs.push(a.sx(i + s.x0)); ys.push(a.sy(s.y[i])); }
+    polyline(a.ctx, xs, ys, s.color, 2, s.dash);
+    if (hk != null && hk - s.x0 < s.y.length) { a.ctx.fillStyle = s.color; a.ctx.strokeStyle = cssVar('--panel'); a.ctx.lineWidth = 2; a.ctx.beginPath(); a.ctx.arc(a.sx(hk), a.sy(s.y[hk - s.x0]), 4, 0, 7); a.ctx.fill(); a.ctx.stroke(); }
+  }
+  $(id)._chart = { a, series, x0, kmax };
+}
+function cumulative(evr) { const out = []; let acc = 0; for (const v of evr) { acc += v; out.push(acc); } return out; }
+function renderSpec() {
+  const an = S.an, s = [{ name: '真实数据', y: cumulative(an.evr), x0: 1, color: cssVar('--s1') }, { name: '平滑性对照', y: cumulative(an.evrSurrogate), x0: 1, color: cssVar('--s1'), dash: [5, 4] }];
+  lineChart('cvSpec', s, [0, 1], '累计解释方差', 0.9);
+  legend('lgSpec', [{ style: `border-color:${cssVar('--s1')}`, label: '真实数据' }, { cls: 'dash', style: `border-color:${cssVar('--s1')}`, label: '平滑性对照（打乱相位）' }, { cls: 'dash', style: `border-color:${cssVar('--muted')}`, label: '90% 参考线' }]);
+}
+function renderHeld() {
+  const an = S.an, c1 = cssVar('--s1'), c2 = cssVar('--s2');
+  const s = [{ name: '线性子空间', y: an.heldout, x0: 0, color: c1 }, { name: '线性子空间（对照）', y: an.heldoutSurrogate, x0: 0, color: c1, dash: [5, 4] }];
+  const lg = [{ style: `border-color:${c1}`, label: '线性子空间' }, { cls: 'dash', style: `border-color:${c1}`, label: '线性子空间（对照）' }];
+  if (an.alignedHeldout) {
+    s.push({ name: '时间对齐 + 形状子空间', y: an.alignedHeldout, x0: 0, color: c2 }, { name: '时间对齐（对照）', y: an.alignedHeldoutSurrogate, x0: 0, color: c2, dash: [5, 4] });
+    lg.push({ style: `border-color:${c2}`, label: '时间对齐 + 形状子空间' }, { cls: 'dash', style: `border-color:${c2}`, label: '时间对齐（对照）' });
+  }
+  const top = Math.max(1.05, ...s.map((x) => Math.max(...Array.from(x.y).slice(0, S.an.kmax + 1))));
+  lineChart('cvHeld', s, [0, top], '留出残差');
+  legend('lgHeld', lg);
+}
+function renderFeat() {
+  const an = S.an, ix = +$('fx').value, iy = +$('fy').value, byGroup = $('fcolor').value === 'group', sm = searchMode();
+  const slider = sliderTraj(), extra = S.samples.concat(slider ? [slider] : []);
+  const xr = extent(an.z.map((z) => z[ix]).concat(extra.map((s) => s.z[ix]))), yr = extent(an.z.map((z) => z[iy]).concat(extra.map((s) => s.z[iy])));
+  const a = axes($('cvFeat'), xr, yr, { xlabel: `PC${ix + 1}（${(an.evr[ix] * 100).toFixed(0)}%）`, ylabel: `PC${iy + 1}（${(an.evr[iy] * 100).toFixed(0)}%）` });
+  const pts = [], surface = cssVar('--panel');
+  an.z.forEach((z, n) => {
+    const ep = S.ds.episodes[S.idx[n]], x = a.sx(z[ix]), y = a.sy(z[iy]);
+    const sv = sm ? searchValue(sm.sr.demos[String(ep.id)], sm.state) : null;
+    if (sv != null) { mark(a.ctx, 'circle', x, y, 4.5, sv, sm.state != null); pts.push({ x, y, n }); return; }
+    a.ctx.fillStyle = sm ? cssVar('--grid') : byGroup ? catColor(ep.group) : ramp((ep.T - S.lenRange[0]) / (S.lenRange[1] - S.lenRange[0] || 1));
+    a.ctx.strokeStyle = surface; a.ctx.lineWidth = 1.5;
+    a.ctx.beginPath(); a.ctx.arc(x, y, 4.5, 0, 7); a.ctx.fill(); a.ctx.stroke();
+    pts.push({ x, y, n });
+  });
+  if (sm) {
+    const where = new Map(S.idx.map((i, n) => [String(S.ds.episodes[i].id), n]));
+    for (const [ea, eb, res] of sm.sr.mids) {
+      const na = where.get(String(ea)), nb = where.get(String(eb));
+      if (na == null || nb == null) continue;
+      mark(a.ctx, 'square', a.sx((an.z[na][ix] + an.z[nb][ix]) / 2), a.sy((an.z[na][iy] + an.z[nb][iy]) / 2), 3.4, searchValue(res, sm.state), sm.state != null);
+    }
+    if (sm.sr.mean.length) mark(a.ctx, 'diamond', a.sx(0), a.sy(0), 8, searchValue(sm.sr.mean, sm.state), sm.state != null);
+  }
+  a.ctx.lineWidth = 1.8; a.ctx.strokeStyle = cssVar('--ink');
+  for (const s of sm ? [] : S.samples) { a.ctx.beginPath(); a.ctx.arc(a.sx(s.z[ix]), a.sy(s.z[iy]), 4.5, 0, 7); a.ctx.stroke(); }
+  if (slider) { a.ctx.fillStyle = cssVar('--s3'); a.ctx.strokeStyle = surface; a.ctx.lineWidth = 2; a.ctx.beginPath(); a.ctx.arc(a.sx(slider.z[ix]), a.sy(slider.z[iy]), 7, 0, 7); a.ctx.fill(); a.ctx.stroke(); }
+  for (const n of [S.pinned, S.hover]) if (n != null) { a.ctx.strokeStyle = cssVar('--s2'); a.ctx.lineWidth = 2.5; a.ctx.beginPath(); a.ctx.arc(a.sx(an.z[n][ix]), a.sy(an.z[n][iy]), 8, 0, 7); a.ctx.stroke(); }
+  hits.cvFeat = pts;
+  const lg = [];
+  if (sm) {
+    if (sm.state == null) lg.push({ cls: 'ramp', style: `background:${rampCss()}`, label: '解出的测试状态比例：0 → 100%' });
+    else lg.push({ cls: 'dot', style: `background:${cssVar('--s1')}`, label: `解出测试状态 ${sm.state + 1}` }, { cls: 'ring', style: `border-color:${cssVar('--demo')}`, label: '未解出' });
+    lg.push({ cls: 'dot', style: `background:${cssVar('--ink2')};border-radius:0;transform:rotate(45deg)`, label: '均值轨迹（共用部分）' }, { cls: 'dot', style: `background:${cssVar('--ink2')};border-radius:0;width:7px;height:7px`, label: '两条演示的中点' });
+    legend('lgFeat', lg);
+    return;
+  }
+  if (byGroup) { const seen = [...new Set(S.idx.map((i) => S.ds.episodes[i].group))].sort((p, q) => p - q); seen.slice(0, 8).forEach((g) => lg.push({ cls: 'dot', style: `background:${catColor(g)}`, label: S.ds.groups[g].slice(0, 28) })); if (seen.length > 8) lg.push({ cls: 'dot', style: `background:${cssVar('--demo')}`, label: `其余 ${seen.length - 8} 组` }); }
+  else lg.push({ cls: 'ramp', style: `background:${rampCss()}`, label: `演示时长 ${S.lenRange[0]} → ${S.lenRange[1]} 步` });
+  lg.push({ cls: 'ring', style: `border-color:${cssVar('--ink')}`, label: '采样轨迹' });
+  if (slider) lg.push({ cls: 'dot', style: `background:${cssVar('--s3')}`, label: '手动坐标' });
+  legend('lgFeat', lg);
+}
+/* ---------- search results: which points of the training space solve the test states ---------- */
+function curSearch() { return S.search && typeof S.group === 'number' && S.ds ? S.search.tasks[S.ds.groups[S.group]] || null : null; }
+function searchMode() {
+  const sr = curSearch();
+  if (!sr || $('fcolor').value !== 'search') return null;
+  return { sr, state: $('fstate').value === 'all' || $('fstate').value === '' ? null : +$('fstate').value };
+}
+function searchValue(res, state) { if (!res || !res.length) return null; return state == null ? res.reduce((u, v) => u + v, 0) / res.length : res[state]; }
+/* One candidate: a ramp fill for "share of states solved", or filled / hollow for a single state. */
+function mark(ctx, shape, x, y, r, value, single) {
+  ctx.save();
+  ctx.beginPath();
+  if (shape === 'circle') ctx.arc(x, y, r, 0, 7);
+  else if (shape === 'square') ctx.rect(x - r, y - r, 2 * r, 2 * r);
+  else { ctx.moveTo(x, y - r); ctx.lineTo(x + r, y); ctx.lineTo(x, y + r); ctx.lineTo(x - r, y); ctx.closePath(); }
+  const solved = single ? value > 0 : true;
+  ctx.fillStyle = single ? (solved ? cssVar('--s1') : cssVar('--panel')) : ramp(value);
+  ctx.fill();
+  ctx.lineWidth = shape === 'diamond' ? 2 : 1.5;
+  ctx.strokeStyle = shape === 'diamond' ? cssVar('--ink') : single && !solved ? cssVar('--demo') : cssVar('--panel');
+  ctx.stroke();
+  ctx.restore();
+}
+function renderSearch() {
+  const sr = curSearch(), head = $('srchTbl').querySelector('thead'), body = $('srchTbl').querySelector('tbody'), ph = $('srchPc').querySelector('thead'), pb = $('srchPc').querySelector('tbody');
+  $('srchBody').hidden = !sr;
+  if (!sr) {
+    $('srchInfo').textContent = '';
+    $('srchHow').textContent = typeof S.group === 'number'
+      ? '这个分组还没有搜索结果。搜索需要仿真器：用 scripts/analysis/replay_search.py 把训练空间里的候选逐个放到测试初始状态上执行，再用 export_search_for_lab.py 打包，把生成的 json 拖进页面即可。'
+      : '搜索结果是按任务给出的，请先选择一个具体的分组。';
+    return;
+  }
+  const n = sr.num_states, rate = (res) => res.reduce((u, v) => u + v, 0) / res.length, pct = (v) => (v * 100).toFixed(0) + '%';
+  const demoRates = Object.values(sr.demos).map(rate), avg = demoRates.reduce((u, v) => u + v, 0) / demoRates.length;
+  const rows = [];
+  if (sr.mean.length) rows.push(['均值轨迹（共用部分）', `${sr.mean.reduce((u, v) => u + v, 0)} / ${n}`, '所有演示按时间归一化后取平均，只有这一条']);
+  rows.push(['单条训练演示', pct(avg), `共 ${demoRates.length} 条，最好的 ${pct(Math.max(...demoRates))}，最差的 ${pct(Math.min(...demoRates))}`]);
+  if (sr.mids.length) { const mid = sr.mids.map((m) => rate(m[2])).reduce((u, v) => u + v, 0) / sr.mids.length; rows.push(['两条演示的中点', pct(mid), `随机 ${sr.mids.length} 对；` + (mid >= avg ? '不低于单条演示，两点之间的连线仍在可行区域内' : '低于单条演示，有些连线穿过了不可行的区域')]); }
+  head.innerHTML = '<tr><th class="txt">候选</th><th>解出的测试状态</th><th class="txt">说明</th></tr>';
+  body.innerHTML = rows.map((r) => `<tr><td class="txt">${r[0]}</td><td>${r[1]}</td><td class="txt">${r[2]}</td></tr>`).join('');
+  if (sr.pc.length) {
+    const amounts = [-2, -1, 1, 2];
+    ph.innerHTML = '<tr><th class="txt">把均值沿主方向移动</th>' + amounts.map((v) => `<th>${v > 0 ? '+' : ''}${v}σ</th>`).join('') + '</tr>';
+    pb.innerHTML = [1, 2, 3].map((c) => `<tr><td class="txt">第 ${c} 主方向</td>` + amounts.map((v) => { const hit = sr.pc.find((q) => q[0] === c && q[1] === v); return `<td>${hit ? pct(rate(hit[2])) : '—'}</td>`; }).join('') + '</tr>').join('');
+  } else { ph.innerHTML = ''; pb.innerHTML = ''; }
+  const total = demoRates.length, cur = $('fstate').value;
+  $('srchBars').innerHTML = Array.from({ length: n }, (_, k) => {
+    const solved = Object.values(sr.demos).reduce((u, res) => u + res[k], 0);
+    return `<button type="button" data-state="${k}" aria-pressed="${String(cur === String(k))}"><span>测试状态 ${k + 1}</span><span class="track"><span class="fill" style="width:${(solved / total) * 100}%"></span></span><span class="num">${solved} / ${total}</span></button>`;
+  }).join('');
+  $('srchInfo').textContent = `${total} 条训练演示 × ${n} 个测试初始状态，在仿真器里逐个执行`;
+  $('srchHow').textContent = '做法：把训练空间里的每个候选动作序列，从测试集的初始状态出发原样执行（不看画面、不用模型），由仿真器判定是否成功。上方“特征空间”和“轨迹与采样”两张图会按这里的结果着色；点击某个测试状态，可以看到哪些点、哪些路径能解出它。';
+}
+
+function trajLayers() {
+  const an = S.an, layers = [];
+  const sm = searchMode();
+  S.idx.forEach((i, n) => {
+    const sv = sm ? searchValue(sm.sr.demos[String(S.ds.episodes[i].id)], sm.state) : null;
+    if (sv == null) layers.push({ x: S.prep.X[i], color: cssVar('--demo'), width: 1, alpha: S.idx.length > 150 ? 0.12 : 0.3, n });
+    else if (sm.state == null) layers.push({ x: S.prep.X[i], color: ramp(sv), width: 1.2, alpha: 0.6, n });
+    else layers.push({ x: S.prep.X[i], color: sv > 0 ? cssVar('--s1') : cssVar('--demo'), width: sv > 0 ? 1.3 : 1, alpha: sv > 0 ? 0.6 : 0.14, n });
+  });
+  for (const s of sm ? [] : S.samples) layers.push({ x: s.x, color: cssVar('--s1'), width: 1.6, alpha: 0.85 });
+  layers.push({ x: an.model.mean, color: cssVar('--ink'), width: 2.6 });
+  const slider = sliderTraj();
+  if (slider) layers.push({ x: slider.x, color: cssVar('--s3'), width: 2.8 });
+  if (S.pinned != null) layers.push({ x: S.prep.X[S.idx[S.pinned]], color: cssVar('--ink'), width: 2.8, segments: eventSegments(S.idx[S.pinned]) });
+  if (S.hover != null && S.hover !== S.pinned) layers.push({ x: S.prep.X[S.idx[S.hover]], color: cssVar('--s2'), width: 2.8 });
+  return layers;
+}
+function renderTraj() {
+  const p = S.prep, cv = $('cvTraj'), layers = trajLayers(), names = dimNames(), L = p.L, D = p.D;
+  const is3d = S.mode === '3d' && D >= 3;
+  $('mode3d').setAttribute('aria-pressed', String(is3d)); $('modeTs').setAttribute('aria-pressed', String(!is3d));
+  $('mode3d').disabled = D < 3;
+  ['d0', 'd1', 'd2'].forEach((id) => { $(id).hidden = !is3d; });
+  cv.classList.toggle('drag', is3d);
+  if (is3d) {
+    const { ctx, w, h } = setup(cv), dims = S.dims, lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+    const val = (x, t, a) => x[t * D + dims[a]] * p.std[dims[a]];
+    for (const ly of layers) for (let t = 0; t < L; t++) for (let a = 0; a < 3; a++) { const v = val(ly.x, t, a); if (v < lo[a]) lo[a] = v; if (v > hi[a]) hi[a] = v; }
+    const range = [0, 1, 2].map((a) => hi[a] - lo[a] || 1), big = Math.max(...range), equal = Math.min(...range) > big / 25;
+    const norm = (v, a) => (v - (lo[a] + hi[a]) / 2) / (equal ? big : range[a]);
+    const cy = Math.cos(S.yaw), sy = Math.sin(S.yaw), cp = Math.cos(S.pitch), sp = Math.sin(S.pitch), scale = Math.min(w, h) * 0.78;
+    const proj = (x, y, z) => { const xr = cy * x - sy * y, yr = sy * x + cy * y; return [w / 2 + xr * scale, h / 2 - (z * cp - yr * sp) * scale]; };
+    const half = (a) => (equal ? range[a] / big / 2 : 0.5), corner = [-half(0), -half(1), -half(2)];
+    const axisEnds = [];
+    for (let a = 0; a < 3; a++) {
+      const end = corner.slice(); end[a] = half(a);
+      const p0 = proj(...corner), p1 = proj(...end);
+      polyline(ctx, [p0[0], p1[0]], [p0[1], p1[1]], cssVar('--line'), 1.2);
+      axisEnds.push(p1);
+    }
+    for (const ly of layers) {
+      const xs = new Array(L), ys = new Array(L);
+      for (let t = 0; t < L; t++) { const q = proj(norm(val(ly.x, t, 0), 0), norm(val(ly.x, t, 1), 1), norm(val(ly.x, t, 2), 2)); xs[t] = q[0]; ys[t] = q[1]; }
+      drawLayer(ctx, xs, ys, ly);
+      if (ly.width > 2) { ctx.fillStyle = ly.color; ctx.beginPath(); ctx.arc(xs[0], ys[0], 3.5, 0, 7); ctx.fill(); }
+    }
+    ctx.font = '11px ' + cssVar('--sans'); ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
+    axisEnds.forEach((q, a) => {
+      const text = `${names[dims[a]]}  ${fmt(lo[a])} → ${fmt(hi[a])}`, tw = ctx.measureText(text).width, right = q[0] + 6 + tw > w - 4;
+      ctx.textAlign = right ? 'right' : 'left';
+      const tx = right ? q[0] - 6 : q[0] + 6, ty = Math.min(Math.max(q[1], 10), h - 10);
+      ctx.strokeStyle = cssVar('--panel'); ctx.lineWidth = 4; ctx.strokeText(text, tx, ty);
+      ctx.fillStyle = cssVar('--ink2'); ctx.fillText(text, tx, ty);
+    });
+  } else {
+    const { ctx, w, h } = setup(cv), cols = D <= 2 ? 1 : D <= 6 ? 2 : 3, rows = Math.ceil(D / cols), pw = w / cols, ph = h / rows;
+    for (let d = 0; d < D; d++) {
+      const x0 = (d % cols) * pw + 40, x1 = (d % cols + 1) * pw - 8, y0 = Math.floor(d / cols) * ph + 18, y1 = (Math.floor(d / cols) + 1) * ph - 8;
+      let lo = Infinity, hi = -Infinity;
+      for (const ly of layers) for (let t = 0; t < L; t++) { const v = ly.x[t * D + d] * p.std[d]; if (v < lo) lo = v; if (v > hi) hi = v; }
+      const sy = (v) => y1 - ((v - lo) / (hi - lo || 1)) * (y1 - y0);
+      ctx.strokeStyle = cssVar('--grid'); ctx.lineWidth = 1; ctx.strokeRect(x0, y0, x1 - x0, y1 - y0);
+      ctx.fillStyle = cssVar('--ink2'); ctx.font = '11px ' + cssVar('--sans'); ctx.textAlign = 'left'; ctx.textBaseline = 'bottom'; ctx.fillText(names[d], x0, y0 - 3);
+      ctx.fillStyle = cssVar('--muted'); ctx.font = '10px ' + cssVar('--mono'); ctx.textAlign = 'right'; ctx.textBaseline = 'top'; ctx.fillText(fmt(hi), x0 - 4, y0); ctx.textBaseline = 'bottom'; ctx.fillText(fmt(lo), x0 - 4, y1);
+      for (const ly of layers) { const xs = new Array(L), ys = new Array(L); for (let t = 0; t < L; t++) { xs[t] = x0 + (t / (L - 1)) * (x1 - x0); ys[t] = sy(ly.x[t * D + d] * p.std[d]); } drawLayer(ctx, xs, ys, ly); }
+    }
+  }
+  const smT = searchMode();
+  const lg = smT
+    ? (smT.state == null ? [{ cls: 'ramp', style: `background:${rampCss()}`, label: '训练演示，颜色为解出的测试状态比例' }] : [{ style: `border-color:${cssVar('--s1')}`, label: `能解出测试状态 ${smT.state + 1} 的演示` }, { style: `border-color:${cssVar('--demo')}`, label: '不能解出的演示' }]).concat([{ style: `border-color:${cssVar('--ink')}`, label: '共用部分（均值）' }])
+    : [{ style: `border-color:${cssVar('--demo')}`, label: '真实演示' }, { style: `border-color:${cssVar('--ink')}`, label: '共用部分（均值）' }, { style: `border-color:${cssVar('--s1')}`, label: '采样轨迹' }];
+  if (sliderTraj()) lg.push({ style: `border-color:${cssVar('--s3')}`, label: '手动坐标' });
+  if (S.pinned != null) lg.push({ style: `border-image:linear-gradient(90deg, ${cssVar('--s1')} 50%, ${cssVar('--s2')} 50%) 1`, label: '选中的演示（按事件着色）' });
+  if (S.hover != null && S.hover !== S.pinned) lg.push({ style: `border-color:${cssVar('--s2')}`, label: '悬停的演示' });
+  legend('lgTraj', lg);
+}
+function renderChunk() {
+  const c = S.chunks, cv = $('cvChunk');
+  if (!c) { setup(cv); $('chunkInfo').textContent = '演示太短，无法切出动作块'; hits.cvChunk = []; return; }
+  const a = axes(cv, extent(c.coords.map((q) => q[0])), extent(c.coords.map((q) => q[1])), { xlabel: `PC1（${(c.evr[0] * 100).toFixed(0)}%）`, ylabel: `PC2（${(c.evr[1] * 100).toFixed(0)}%）` });
+  const pts = [], hot = S.hover != null ? S.hover : S.pinned;
+  a.ctx.globalAlpha = 0.65;
+  c.coords.forEach((q, i) => { const x = a.sx(q[0]), y = a.sy(q[1]); a.ctx.fillStyle = ramp(c.phase[i]); a.ctx.beginPath(); a.ctx.arc(x, y, 1.8, 0, 7); a.ctx.fill(); pts.push({ x, y, i }); });
+  a.ctx.globalAlpha = 1;
+  if (hot != null) { const xs = [], ys = []; c.coords.forEach((q, i) => { if (c.owner[i] === hot) { xs.push(a.sx(q[0])); ys.push(a.sy(q[1])); } }); polyline(a.ctx, xs, ys, cssVar('--s2'), 2.2); }
+  hits.cvChunk = pts;
+  $('chunkInfo').textContent = `${c.count} 个动作块 · 进度解释 ${(c.phaseExplained * 100).toFixed(0)}% 方差 · 90% 需 ${c.k90 == null ? '>40' : c.k90} 维`;
+  const lg = [{ cls: 'ramp', style: `background:${rampCss()}`, label: '进度：开始 → 结束' }];
+  if (hot != null) lg.push({ style: `border-color:${cssVar('--s2')}`, label: '选中演示经过的路径' });
+  legend('lgChunk', lg);
+}
+function renderWarp() {
+  const an = S.an, cv = $('cvWarp'), L = S.prep.L;
+  if (!an.H) { const { ctx, w, h } = setup(cv); ctx.fillStyle = cssVar('--muted'); ctx.font = '13px ' + cssVar('--sans'); ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('未做时间对齐分析', w / 2, h / 2); legend('lgWarp', []); return; }
+  let lo = 0, hi = 0;
+  for (const h of an.H) for (let j = 0; j < L; j++) { const v = h[j] - j; if (v < lo) lo = v; if (v > hi) hi = v; }
+  const a = axes(cv, [0, L - 1], [lo - 1, hi + 1], { xlabel: '共用路径上的位置', ylabel: '时间偏移（归一化步）' }), hot = S.hover != null ? S.hover : S.pinned;
+  an.H.forEach((h, n) => {
+    const xs = [], ys = [];
+    for (let j = 0; j < L; j++) { xs.push(a.sx(j)); ys.push(a.sy(h[j] - j)); }
+    const T = S.ds.episodes[S.idx[n]].T;
+    polyline(a.ctx, xs, ys, ramp((T - S.lenRange[0]) / (S.lenRange[1] - S.lenRange[0] || 1)), 1, null, an.H.length > 150 ? 0.25 : 0.7);
+  });
+  if (hot != null) { const xs = [], ys = []; for (let j = 0; j < L; j++) { xs.push(a.sx(j)); ys.push(a.sy(an.H[hot][j] - j)); } polyline(a.ctx, xs, ys, cssVar('--s2'), 2.6); }
+  const lg = [{ cls: 'ramp', style: `background:${rampCss()}`, label: `演示时长 ${S.lenRange[0]} → ${S.lenRange[1]} 步` }];
+  if (hot != null) lg.push({ style: `border-color:${cssVar('--s2')}`, label: '选中的演示' });
+  legend('lgWarp', lg);
+}
+/* ---------- manifold shape ---------- */
+function normalizeCoords(raw) {
+  const n = raw.length, out = raw.map((r) => r.slice());
+  let span = 0;
+  for (let c = 0; c < 3; c++) {
+    const col = Float64Array.from(raw, (r) => r[c]).sort(), lo = col[Math.floor(0.02 * (n - 1))], hi = col[Math.ceil(0.98 * (n - 1))];
+    span = Math.max(span, hi - lo);
+    for (let i = 0; i < n; i++) out[i][c] -= (lo + hi) / 2;
+  }
+  for (let i = 0; i < n; i++) for (let c = 0; c < 3; c++) out[i][c] /= span || 1;
+  return out;
+}
+async function computeManifold() {
+  if (!S.an) return;
+  const p = S.prep, kind = $('mKind').value, method = $('mEmbed').value, token = ++S.mToken;
+  const key = [p.key, S.group, kind, $('hor').value, !!S.an.H, $('dedupe').checked].join('|');
+  try {
+    if (!S.mani || S.mani.key !== key) {
+      S.mani = null;
+      $('mStatus').textContent = '正在计算形状指标…';
+      renderMani();
+      await pause();
+      if (token !== S.mToken) return;
+      const rnd = Core.makeRng(11);
+      let points, owner, phase = null;
+      if (kind === 'chunk') {
+        const c = Core.chunkCloud(S.idx.map((i) => p.signals[i]), p.std, Math.max(2, +$('hor').value), 900);
+        if (c.points.length < 12) throw new Error('演示太短，切不出足够的动作块。');
+        points = c.points; owner = c.owner; phase = c.phase;
+      } else {
+        if (kind === 'aligned' && !S.an.H) throw new Error('需要先勾选“时间对齐分析”。');
+        owner = S.idx.map((_, n) => n);
+        if (owner.length > 1000) owner = rnd.permutation(owner.length).slice(0, 1000).sort((a, b) => a - b);
+        points = owner.map((n) => (kind === 'aligned' ? Core.warp(p.X[S.idx[n]], S.an.H[n], p.L, p.D) : p.X[S.idx[n]]));
+      }
+      const groups = phase ? phase.map((v) => Math.min(Math.floor(v * 10), 9)) : null;
+      const metrics = Core.shapeMetrics(points, rnd, 6, groups, kind === 'chunk' ? owner : null);
+      if (token !== S.mToken) return;
+      S.mani = { key, kind, points, owner, phase, metrics, emb: {} };
+    }
+    const m = S.mani;
+    if (!m.emb[method]) {
+      $('mStatus').textContent = '正在计算嵌入…';
+      await pause();
+      if (token !== S.mToken) return;
+      const raw = method === 'pca' ? Core.embedPCA(m.points) : method === 'isomap' ? Core.embedIsomap(m.metrics.geo, m.metrics.n) : Core.embedDiffusion(m.metrics.dist, m.metrics.kth, m.metrics.n);
+      m.emb[method] = normalizeCoords(raw);
+    }
+    $('mStatus').textContent = '';
+  } catch (err) { S.mani = null; $('mStatus').textContent = err.message; }
+  renderMani();
+}
+function renderMani() {
+  const cv = $('cvMani'), m = S.mani, method = $('mEmbed').value, head = $('mTbl').querySelector('thead'), body = $('mTbl').querySelector('tbody');
+  if (!m || !m.emb[method]) {
+    const { ctx, w, h } = setup(cv);
+    ctx.fillStyle = cssVar('--muted'); ctx.font = '13px ' + cssVar('--sans'); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText($('mStatus').textContent || '正在计算…', w / 2, h / 2);
+    hits.cvMani = [];
+    if (!m) { head.innerHTML = ''; body.innerHTML = ''; $('mVerdict').textContent = ''; legend('lgMani', []); }
+    return;
+  }
+  const { ctx, w, h } = setup(cv), c = m.emb[method], n = c.length, chunk = m.kind === 'chunk';
+  const cy = Math.cos(S.mYaw), sy = Math.sin(S.mYaw), cp = Math.cos(S.mPitch), sp = Math.sin(S.mPitch), scale = Math.min(w, h) * 0.78;
+  const px = new Float64Array(n), py = new Float64Array(n), pz = new Float64Array(n);
+  const proj = (x, y, z) => { const xr = cy * x - sy * y, yr = sy * x + cy * y; return [w / 2 + xr * scale, h / 2 - (z * cp - yr * sp) * scale, yr * cp + z * sp]; };
+  let zlo = Infinity, zhi = -Infinity;
+  for (let i = 0; i < n; i++) { const q = proj(c[i][0], c[i][1], c[i][2]); px[i] = q[0]; py[i] = q[1]; pz[i] = q[2]; if (q[2] < zlo) zlo = q[2]; if (q[2] > zhi) zhi = q[2]; }
+  if ($('mHull').checked) {
+    const hull = Core.convexHull2D(Array.from({ length: n }, (_, i) => [px[i], py[i]]));
+    ctx.save(); ctx.beginPath(); hull.forEach((q, i) => (i ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]))); ctx.closePath();
+    ctx.fillStyle = cssVar('--grid'); ctx.globalAlpha = 0.45; ctx.fill(); ctx.globalAlpha = 1;
+    ctx.strokeStyle = cssVar('--muted'); ctx.lineWidth = 1; ctx.setLineDash([4, 4]); ctx.stroke(); ctx.restore();
+  }
+  const runs = [];
+  if (chunk) { let start = 0; for (let i = 1; i <= n; i++) if (i === n || m.owner[i] !== m.owner[start]) { runs.push([start, i]); start = i; } }
+  for (const [a, b] of runs) polyline(ctx, px.subarray(a, b), py.subarray(a, b), cssVar('--demo'), 1, null, runs.length > 150 ? 0.15 : 0.35);
+  const order = Array.from({ length: n }, (_, i) => i).sort((a, b) => pz[b] - pz[a]), byGroup = !chunk && $('fcolor').value === 'group', radius = chunk ? 2.4 : 5;
+  ctx.strokeStyle = cssVar('--panel'); ctx.lineWidth = chunk ? 0 : 1.5;
+  for (const i of order) {
+    const ep = S.ds.episodes[S.idx[m.owner[i]]];
+    ctx.fillStyle = chunk ? ramp(m.phase[i]) : byGroup ? catColor(ep.group) : ramp((ep.T - S.lenRange[0]) / (S.lenRange[1] - S.lenRange[0] || 1));
+    ctx.globalAlpha = 0.45 + 0.55 * (1 - (pz[i] - zlo) / (zhi - zlo || 1));
+    ctx.beginPath(); ctx.arc(px[i], py[i], radius, 0, 7); ctx.fill();
+    if (!chunk) ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+  for (const [sel, width] of [[S.pinned, 2.8], [S.hover === S.pinned ? null : S.hover, 1.8]]) {
+    if (sel == null) continue;
+    if (chunk) { for (const [a, b] of runs) if (m.owner[a] === sel) { polyline(ctx, px.subarray(a, b), py.subarray(a, b), cssVar('--s2'), width); ctx.fillStyle = cssVar('--s2'); ctx.beginPath(); ctx.arc(px[a], py[a], 4, 0, 7); ctx.fill(); } }
+    else { const i = m.owner.indexOf(sel); if (i >= 0) { ctx.strokeStyle = cssVar('--s2'); ctx.lineWidth = width; ctx.beginPath(); ctx.arc(px[i], py[i], 9, 0, 7); ctx.stroke(); } }
+  }
+  ctx.font = '11px ' + cssVar('--sans'); ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+  for (let a = 0; a < 3; a++) {
+    const v = [0, 0, 0]; v[a] = 0.13;
+    const o = proj(0, 0, 0), e = proj(v[0], v[1], v[2]), ox = 46 - o[0], oy = h - 46 - o[1];
+    polyline(ctx, [o[0] + ox, e[0] + ox], [o[1] + oy, e[1] + oy], cssVar('--ink2'), 1.2);
+    ctx.fillStyle = cssVar('--ink2'); ctx.fillText(String(a + 1), e[0] + ox + 3, e[1] + oy);
+  }
+  hits.cvMani = Array.from({ length: n }, (_, i) => ({ x: px[i], y: py[i], n: m.owner[i], i }));
+
+  const t = m.metrics, f2 = (v) => (isFinite(v) ? v.toFixed(2) : '—');
+  head.innerHTML = '<tr><th class="txt">指标</th><th>这组数据</th><th>凸椭球对照</th></tr>';
+  const rows = [['点数', String(t.n), '同'], ['本征维数（自由度）', f2(t.dim), f2(t.nullDim)], ['测地距离 ÷ 直线距离', f2(t.geoRatio), f2(t.nullGeoRatio)], ['中点检验', f2(t.mid), f2(t.nullMid)]];
+  if (t.within) rows.push(['同一进度段内的中点检验', f2(t.within.value), f2(t.within.nul)]);
+  body.innerHTML = rows.map((r) => `<tr><td class="txt">${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td></tr>`).join('');
+  const bend = t.geoRatio / t.nullGeoRatio, cvx = t.mid / t.nullMid, parts = [];
+  parts.push(`大约有 ${t.dim.toFixed(1)} 个自由度` + (t.dim < 0.7 * t.nullDim ? '，远少于同协方差的椭球，说明数据集中在一个低维的面上。' : '，和同协方差的椭球相当。'));
+  parts.push(bend > 1.25 ? '明显弯曲：沿数据走的最短路比直线长得多。' : bend > 1.1 ? '略有弯曲。' : '看不出弯曲。');
+  parts.push(cvx > 2 ? '明显不是凸集：两点连线的中点落在没有数据的地方。' : cvx > 1.2 ? '轻度非凸。' : '没有发现非凸的证据。');
+  if (t.within) parts.push(t.within.value / t.within.nul > 1.5 ? '限定在同一进度段内仍然不凸。' : '限定在同一进度段内接近凸。');
+  if (t.n < 100) parts.push(`只有 ${t.n} 个点，这些检验的分辨能力有限。`);
+  if (!t.connected) parts.push('近邻图不连通，测地距离只在连通的点对之间统计。');
+  $('mVerdict').textContent = parts.join('');
+  const lg = [{ cls: 'ramp', style: `background:${rampCss()}`, label: chunk ? '进度：开始 → 结束' : byGroup ? '颜色表示分组' : `演示时长 ${S.lenRange[0]} → ${S.lenRange[1]} 步` }];
+  if (chunk) lg.push({ style: `border-color:${cssVar('--demo')}`, label: '同一条演示的动作块按时间相连' });
+  if ($('mHull').checked) lg.push({ cls: 'dash', style: `border-color:${cssVar('--muted')}`, label: '凸包在当前视角下的轮廓' });
+  if (S.pinned != null) lg.push({ style: `border-color:${cssVar('--s2')}`, label: '选中的演示' });
+  legend('lgMani', lg);
+}
+
+/* ---------- single episode: events ---------- */
+function isVelDims() { const out = []; for (const c of S.comps) for (let k = 0; k < c.dims.length; k++) out.push(!c.cumsum && /action|delta|vel/i.test(c.field)); return out; }
+function episodeSeg(i) {
+  const key = S.prep.key + '|' + i;
+  if (!S.segCache.has(key)) S.segCache.set(key, Core.segmentEvents(S.prep.signals[i], isVelDims()));
+  return S.segCache.get(key);
+}
+function ruleEvents(i) {
+  const seg = episodeSeg(i), names = dimNames(), bin = seg.binary.length ? names[seg.binary[0]] : null;
+  return {
+    source: 'rule',
+    events: seg.events.map((e) => ({
+      start: e.start, end: e.end, kind: e.kind, level: bin ? e.levels[0] : 1,
+      label: (e.kind === 'pause' ? '停顿' : '运动') + (bin ? `（${bin} ${e.levels[0] ? '高' : '低'}）` : ''),
+      description: e.kind === 'pause' ? '速度持续低于阈值' : '',
+    })),
+  };
+}
+function eventsFor(i) {
+  const key = S.prep.key + '|' + i;
+  if (!S.events.has(key)) S.events.set(key, ruleEvents(i));
+  return S.events.get(key);
+}
+function eventColors(rec) {
+  if (rec.source === 'rule') return rec.events.map((e) => (e.kind === 'pause' ? cssVar('--demo') : cssVar(e.level ? '--s1' : '--s2')));
+  return rec.events.map((_, n) => cssVar('--s' + ((n % 8) + 1)));
+}
+function eventSegments(i) {
+  const rec = eventsFor(i), colors = eventColors(rec), T = S.prep.signals[i].T, L = S.prep.L, k = (L - 1) / Math.max(T - 1, 1);
+  return rec.events.map((e, n) => ({ l0: Math.round(e.start * k), l1: Math.min(L - 1, Math.round((e.end + 1) * k)), color: colors[n] }));
+}
+function drawLayer(ctx, xs, ys, ly) {
+  if (!ly.segments) { polyline(ctx, xs, ys, ly.color, ly.width, null, ly.alpha); return; }
+  for (const s of ly.segments) polyline(ctx, xs.slice(s.l0, s.l1 + 1), ys.slice(s.l0, s.l1 + 1), s.color, ly.width);
+}
+function renderEpisode() {
+  const cv = $('cvEp'), i = S.pinned == null ? null : S.idx[S.pinned];
+  const head = $('evTbl').querySelector('thead'), body = $('evTbl').querySelector('tbody');
+  if (i == null) {
+    const { ctx, w, h } = setup(cv);
+    ctx.fillStyle = cssVar('--muted'); ctx.font = '13px ' + cssVar('--sans'); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('在特征空间里点一个点，或从上方列表选择一条演示', w / 2, h / 2);
+    head.innerHTML = ''; body.innerHTML = ''; legend('lgEp', []); $('evNote').textContent = ''; cv._ep = null;
+    return;
+  }
+  const sig = S.prep.signals[i], seg = episodeSeg(i), rec = eventsFor(i), colors = eventColors(rec), names = dimNames(), T = sig.T, D = sig.D;
+  const { ctx, w, h } = setup(cv), L = 76, R = w - 12, sx = (t) => L + (t / Math.max(T - 1, 1)) * (R - L);
+  const hasBin = seg.binary.length > 0, yA0 = hasBin ? 66 : 46, yB1 = h - 34, yA1 = yA0 + Math.round((yB1 - yA0) * 0.36), yB0 = yA1 + 14;
+  const caption = (text, y) => { ctx.fillStyle = cssVar('--ink2'); ctx.font = '11px ' + cssVar('--sans'); ctx.textAlign = 'right'; ctx.textBaseline = 'middle'; ctx.fillText(text.length > 11 ? '…' + text.slice(-10) : text, L - 8, y); };
+  caption('事件', 13);
+  rec.events.forEach((e, n) => {
+    const x0 = sx(Math.max(e.start - 0.5, 0)), x1 = sx(Math.min(e.end + 0.5, T - 1));
+    ctx.fillStyle = colors[n]; ctx.fillRect(x0 + 1, 8, Math.max(x1 - x0 - 2, 1), 10);
+    ctx.fillStyle = cssVar('--ink2'); ctx.font = '11px ' + cssVar('--sans'); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const room = x1 - x0 - 4, text = ctx.measureText(e.label).width <= room ? e.label : String(n + 1);
+    if (ctx.measureText(text).width <= room) ctx.fillText(text, (x0 + x1) / 2, 30);
+  });
+  if (hasBin) {
+    caption(names[seg.binary[0]], 51);
+    ctx.fillStyle = cssVar('--grid'); ctx.fillRect(L, 47, R - L, 8);
+    ctx.fillStyle = cssVar('--ink2');
+    const lv = seg.levels[0];
+    for (let t = 0; t < T;) { if (!lv[t]) { t++; continue; } let e = t; while (e + 1 < T && lv[e + 1]) e++; const x0 = sx(Math.max(t - 0.5, 0)), x1 = sx(Math.min(e + 0.5, T - 1)); ctx.fillRect(x0, 47, Math.max(x1 - x0, 1), 8); t = e + 1; }
+  }
+  ctx.strokeStyle = cssVar('--grid'); ctx.lineWidth = 1;
+  ctx.strokeRect(L, yA0, R - L, yA1 - yA0); ctx.strokeRect(L, yB0, R - L, yB1 - yB0);
+  let vmax = 0;
+  for (let t = 0; t < T; t++) if (seg.speed[t] > vmax) vmax = seg.speed[t];
+  vmax = vmax || 1;
+  caption('速度', (yA0 + yA1) / 2); caption('各维', (yB0 + yB1) / 2);
+  ctx.fillStyle = cssVar('--muted'); ctx.font = '10px ' + cssVar('--mono'); ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+  ctx.fillText(fmt(vmax), L + 4, yA0 + 3);
+  for (let n = 1; n < rec.events.length; n++) { const x = sx(rec.events[n].start - 0.5); polyline(ctx, [x, x], [yA0, yB1], cssVar('--muted'), 1, [3, 3]); }
+  const xs = Array.from({ length: T }, (_, t) => sx(t));
+  for (const d of seg.cont) {
+    let lo = Infinity, hi = -Infinity;
+    for (let t = 0; t < T; t++) { const v = sig.data[t * D + d]; if (v < lo) lo = v; if (v > hi) hi = v; }
+    polyline(ctx, xs, xs.map((_, t) => yB1 - 4 - ((sig.data[t * D + d] - lo) / (hi - lo || 1)) * (yB1 - yB0 - 8)), cssVar('--demo'), 1.3);
+  }
+  polyline(ctx, xs, xs.map((_, t) => yA1 - 2 - (seg.speed[t] / vmax) * (yA1 - yA0 - 6)), cssVar('--ink'), 2);
+  ctx.fillStyle = cssVar('--muted'); ctx.font = '11px ' + cssVar('--mono'); ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  for (const v of ticks(0, T - 1, 8).filter(Number.isInteger)) ctx.fillText(String(v), sx(v), yB1 + 5);
+  ctx.fillStyle = cssVar('--ink2'); ctx.font = '12px ' + cssVar('--sans'); ctx.fillText('步', (L + R) / 2, h - 15);
+  if (S.epHover != null) polyline(ctx, [sx(S.epHover), sx(S.epHover)], [6, yB1], cssVar('--ink'), 1);
+  cv._ep = { L, R, T, i };
+
+  head.innerHTML = '<tr><th>#</th><th class="txt">事件</th><th>起始步</th><th>结束步</th><th>时长（步）</th><th>占比</th><th class="txt">说明</th></tr>';
+  body.innerHTML = rec.events.map((e, n) => `<tr><td><span class="sw" style="background:${colors[n]}"></span>${n + 1}</td><td class="txt">${esc(e.label)}</td><td>${e.start}</td><td>${e.end}</td><td>${e.end - e.start + 1}</td><td>${(((e.end - e.start + 1) / T) * 100).toFixed(0)}%</td><td class="txt">${esc(e.description || '')}</td></tr>`).join('');
+  const lg = [];
+  if (rec.source === 'rule') {
+    const kinds = new Set(rec.events.map((e) => (e.kind === 'pause' ? 'p' : e.level ? 'h' : 'l')));
+    if (kinds.has('h')) lg.push({ cls: 'dot', style: `background:${cssVar('--s1')}`, label: hasBin ? '运动（二值维为高）' : '运动' });
+    if (kinds.has('l')) lg.push({ cls: 'dot', style: `background:${cssVar('--s2')}`, label: '运动（二值维为低）' });
+    if (kinds.has('p')) lg.push({ cls: 'dot', style: `background:${cssVar('--demo')}`, label: '停顿' });
+  }
+  lg.push({ style: `border-color:${cssVar('--ink')}`, label: '速度（各维变化率归一化后的合成）' }, { style: `border-color:${cssVar('--demo')}`, label: '各维曲线（各自归一化）' }, { cls: 'dash', style: `border-color:${cssVar('--muted')}`, label: '事件边界' });
+  legend('lgEp', lg);
+  $('evNote').textContent = rec.source === 'rule'
+    ? `规则法：在二值维（例如夹爪指令）跳变处，以及速度持续偏低的区间两端切分，共 ${rec.events.length} 个事件。它只看数值，不理解任务；需要有语义的名称时用“让模型划分”。`
+    : `由 ${rec.model} 划分，共 ${rec.events.length} 个事件${rec.usage ? '，用量 ' + rec.usage : ''}。事件颜色按顺序区分，名称和依据见上表。`;
+}
+
+/* ---------- event segmentation by a language model ---------- */
+const EVENT_SCHEMA = {
+  type: 'object',
+  properties: {
+    events: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: { start: { type: 'integer' }, end: { type: 'integer' }, label: { type: 'string' }, description: { type: 'string' } },
+        required: ['start', 'end', 'label', 'description'],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ['events'],
+  additionalProperties: false,
+};
+const LLM_SYSTEM = '你是机器人操作轨迹的分析助手。用户会给你一条演示的任务指令，以及按时间抽样的数值表。请把整条轨迹划分成若干个首尾相接的事件（例如：接近目标、抓取、搬运、放置、松开、撤回），并只输出 JSON。';
+function buildEventPrompt(i) {
+  const ep = S.ds.episodes[i], sig = S.prep.signals[i], seg = episodeSeg(i), names = dimNames(), T = sig.T, D = sig.D;
+  const n = Math.min(T, 80), steps = Array.from({ length: n }, (_, k) => Math.round((k * (T - 1)) / Math.max(n - 1, 1)));
+  let mean = 0;
+  for (let t = 0; t < T; t++) mean += seg.speed[t];
+  mean = mean / T || 1;
+  const num = (v) => (Math.abs(v) < 1e-6 ? '0' : Number(v.toPrecision(3)).toString());
+  const rows = steps.map((t) => [t].concat(Array.from({ length: D }, (_, d) => num(sig.data[t * D + d])), (seg.speed[t] / mean).toFixed(2)).join(','));
+  const lines = [
+    `任务指令：${S.ds.groups[ep.group]}`,
+    `轨迹长度：${T} 步，步编号从 0 到 ${T - 1}。`,
+    `各列含义：step 是步编号；${names.join('、')} 是信号各维的数值；speed 是归一化后的运动速度，1 约等于这条轨迹的平均速度。`,
+  ];
+  if (seg.binary.length) lines.push(`${seg.binary.map((d) => names[d]).join('、')} 是二值维（通常是夹爪开合指令），它发生跳变的步：${seg.toggles.join('、') || '无'}。`);
+  lines.push(`规则法给出的候选边界（二值维跳变处和速度低谷的两端）：${seg.cuts.join('、') || '无'}。这些只是参考，你可以合并或调整。`, '', `数值表（等间隔抽取 ${n} 行）：`, ['step'].concat(names, 'speed').join(','), ...rows, '',
+    '要求：',
+    '1. 输出 {"events":[{"start":整数,"end":整数,"label":"…","description":"…"}]}。',
+    `2. 事件按时间排序、首尾相接、覆盖第 0 步到第 ${T - 1} 步，start 和 end 都包含在事件之内。`,
+    '3. 划分 3 到 10 个事件。label 用不超过 8 个字的中文短语；description 用一句话说明依据了哪些数值变化。');
+  return lines.join('\n');
+}
+function parseEvents(text, T) {
+  const m = /\{[\s\S]*\}/.exec(text);
+  if (!m) throw new Error('模型的回复里没有 JSON。');
+  const raw = JSON.parse(m[0]).events;
+  if (!Array.isArray(raw) || !raw.length) throw new Error('模型的回复里没有 events 列表。');
+  const list = raw.filter((e) => Number.isFinite(+e.start) && Number.isFinite(+e.end)).map((e) => ({ start: Math.round(+e.start), end: Math.round(+e.end), label: String(e.label || '').slice(0, 24) || '事件', description: String(e.description || '') })).sort((a, b) => a.start - b.start);
+  const out = [];
+  let next = 0;
+  for (const e of list) { const end = Math.min(e.end, T - 1); if (end < next) continue; out.push(Object.assign(e, { start: next, end })); next = end + 1; }
+  if (!out.length) throw new Error('模型给出的事件区间无效。');
+  out[out.length - 1].end = T - 1;
+  return out;
+}
+/* Claude, through the official SDK loaded on demand. */
+async function callClaude(model, key, prompt) {
+  const { default: Anthropic } = await import('https://cdn.jsdelivr.net/npm/@anthropic-ai/sdk@0.129.0/+esm');
+  const client = new Anthropic({ apiKey: key, dangerouslyAllowBrowser: true });
+  const params = {
+    model, max_tokens: 16000, system: LLM_SYSTEM, messages: [{ role: 'user', content: prompt }],
+    output_config: { effort: 'medium', format: { type: 'json_schema', schema: EVENT_SCHEMA } },
+  };
+  // Server-side refusal fallback is available for these models; the others take the plain endpoint.
+  const withFallback = ['claude-fable-5-1', 'claude-opus-5-5', 'claude-opus-5', 'claude-sonnet-5-5'].includes(model);
+  try {
+    const response = withFallback
+      ? await client.beta.messages.create({ ...params, betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' })
+      : await client.messages.create(params);
+    if (response.stop_reason === 'refusal') throw new Error('模型拒绝了这次请求' + (response.stop_details && response.stop_details.explanation ? '：' + response.stop_details.explanation : '。'));
+    if (response.stop_reason === 'max_tokens') throw new Error('模型的回复被长度上限截断了。');
+    return { text: response.content.filter((b) => b.type === 'text').map((b) => b.text).join(''), model: response.model, usage: `输入 ${response.usage.input_tokens} / 输出 ${response.usage.output_tokens} token` };
+  } catch (err) {
+    if (err instanceof Anthropic.AuthenticationError) throw new Error('API 密钥无效。');
+    if (err instanceof Anthropic.PermissionDeniedError) throw new Error('这个密钥没有调用该模型的权限。');
+    if (err instanceof Anthropic.NotFoundError) throw new Error('找不到模型 ' + model + '，请检查模型名称。');
+    if (err instanceof Anthropic.RateLimitError) throw new Error('请求过于频繁或额度不足，请稍后再试。');
+    if (err instanceof Anthropic.BadRequestError) throw new Error('请求不被接受：' + err.message);
+    if (err instanceof Anthropic.APIConnectionError) throw new Error('无法连接到 Anthropic 的接口。如果这个页面所在的托管环境禁止外部请求，请改用独立部署的版本。');
+    if (err instanceof Anthropic.APIError) throw new Error(`接口返回错误 ${err.status}：${err.message}`);
+    throw err;
+  }
+}
+/* OpenAI, or any server that speaks the same chat-completions protocol. */
+async function callOpenAICompatible(base, model, key, prompt) {
+  let r;
+  try {
+    r = await fetch(base.replace(/\/+$/, '') + '/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + key },
+      body: JSON.stringify({ model, messages: [{ role: 'system', content: LLM_SYSTEM }, { role: 'user', content: prompt }], response_format: { type: 'json_object' } }),
+    });
+  } catch (err) { throw new Error('无法连接到 ' + base + '。请检查接口地址；如果这个页面所在的托管环境禁止外部请求，请改用独立部署的版本。'); }
+  const body = await r.text();
+  if (!r.ok) throw new Error(`接口返回错误 ${r.status}：${body.slice(0, 300)}`);
+  const j = JSON.parse(body), choice = j.choices && j.choices[0];
+  if (!choice || !choice.message || !choice.message.content) throw new Error('接口的回复里没有内容。');
+  return { text: choice.message.content, model: j.model || model, usage: j.usage ? `输入 ${j.usage.prompt_tokens} / 输出 ${j.usage.completion_tokens} token` : '' };
+}
+function setEvStatus(msg, err) { $('evStatus').textContent = msg || ''; $('evStatus').classList.toggle('err', !!err); }
+async function runLlmEvents() {
+  if (S.pinned == null) { setEvStatus('先选择一条演示。', true); return; }
+  const provider = $('llmProvider').value, model = $('llmModel').value.trim(), key = $('llmKey').value.trim(), i = S.idx[S.pinned], prepKey = S.prep.key;
+  if (!model || !key) { $('llmBox').open = true; setEvStatus(!key ? '先在“模型设置”里填写 API 密钥。' : '先在“模型设置”里填写模型名称。', true); return; }
+  const prompt = buildEventPrompt(i);
+  $('llmLog').textContent = '【发送的内容】\n' + LLM_SYSTEM + '\n\n' + prompt;
+  $('evLlm').disabled = true;
+  setEvStatus('已发送，等待模型回复…');
+  try {
+    const out = provider === 'claude' ? await callClaude(model, key, prompt) : await callOpenAICompatible($('llmBase').value.trim(), model, key, prompt);
+    $('llmLog').textContent += '\n\n【模型的原始回复】\n' + out.text;
+    const events = parseEvents(out.text, S.ds.episodes[i].T);
+    S.events.set(prepKey + '|' + i, { source: 'llm', model: out.model, usage: out.usage, events });
+    setEvStatus('已完成。');
+    if (S.prep && S.prep.key === prepKey) { renderEpisode(); renderTraj(); }
+  } catch (err) {
+    $('llmLog').textContent += '\n\n【出错】\n' + err.message;
+    setEvStatus(err.message, true);
+  } finally { $('evLlm').disabled = false; }
+}
+
+function renderTable() {
+  const head = ['分组', '演示数', '共用部分', '90% 维数', '有效秩', '留出 k=5', '对照 k=5', '路径 + 时间'];
+  $('tbl').querySelector('thead').innerHTML = '<tr>' + head.map((h) => `<th>${h}</th>`).join('') + '</tr>';
+  $('tbl').querySelector('tbody').innerHTML = (S.overview || []).map((r) => `<tr data-g="${r.g}" class="${r.g === S.group ? 'sel' : ''}"><td>${esc(r.name)}</td><td>${r.n}</td><td>${r.common}</td><td>${r.k90}</td><td>${r.pr}</td><td>${r.h5}</td><td>${r.s5}</td><td>${r.a0}</td></tr>`).join('');
+}
+function renderAll() {
+  if (!S.an) return;
+  renderTiles(); renderFeat(); renderTraj(); renderSearch(); renderMani(); renderEpisode(); renderSpec(); renderHeld(); renderChunk(); renderWarp(); renderTable();
+}
+async function runOverview() {
+  const p = prepare(), rows = [], optKey = p.key + $('align').checked + $('dedupe').checked;
+  if (S.ovRunning === optKey) return;
+  S.ovRunning = optKey;
+  const before = $('status').textContent;
+  for (let g = 0; g < S.ds.groups.length; g++) {
+    $('tblNote').textContent = `正在计算分组 ${g + 1} / ${S.ds.groups.length}…`;
+    await pause();
+    if (S.ovRunning !== optKey || S.prep !== p) return;
+    const trajs = S.ds.episodes.map((_, i) => i).filter((i) => S.ds.episodes[i].group === g && (!$('dedupe').checked || p.dupOf[i] < 0)).map((i) => p.X[i]);
+    if (trajs.length < 5) continue;
+    const an = Core.analyzeTrajectories(trajs, p.L, p.D, analysisOpts(trajs.length));
+    let tot = 0;
+    for (const x of trajs) for (let m = 0; m < x.length; m++) tot += (x[m] - p.globalMean[m]) ** 2;
+    const k90 = Core.kAt(an.evr, 0.9), k5 = Math.min(5, an.kmax);
+    rows.push({ g, name: S.ds.groups[g], n: trajs.length, common: S.ds.groups.length > 1 ? ((1 - an.model.total / tot) * 100).toFixed(0) + '%' : '—', k90: k90 == null ? '>' + an.evr.length : k90, pr: Core.participationRatio(an.model).toFixed(2), h5: an.heldout[k5].toFixed(2), s5: an.heldoutSurrogate[k5].toFixed(2), a0: an.alignedHeldout ? an.alignedHeldout[0].toFixed(2) : '—' });
+  }
+  S.overview = rows; S.ovRunning = null;
+  renderTable();
+  $('tblNote').textContent = '共用部分：分组均值解释的方差。留出 k=5 与对照 k=5：用 5 个基重建未见演示的残差，真实数据与平滑性对照。路径 + 时间：只用共用路径加时间规整的残差。点击某一行可切换到该分组。';
+  if ($('status').textContent !== before) setStatus(before);
+}
+
+/* ---------- events ---------- */
+document.querySelectorAll('#samples button').forEach((b) => b.addEventListener('click', () => loadSample(b.dataset.sample)));
+$('file').addEventListener('change', (e) => { if (e.target.files.length) { document.querySelectorAll('#samples button').forEach((b) => b.setAttribute('aria-pressed', 'false')); loadFiles(e.target.files); } });
+const drop = $('drop');
+['dragenter', 'dragover'].forEach((t) => document.addEventListener(t, (e) => { e.preventDefault(); drop.classList.add('over'); }));
+['dragleave', 'drop'].forEach((t) => document.addEventListener(t, (e) => { e.preventDefault(); drop.classList.remove('over'); }));
+document.addEventListener('drop', (e) => { if (e.dataTransfer.files.length) { document.querySelectorAll('#samples button').forEach((b) => b.setAttribute('aria-pressed', 'false')); loadFiles(e.dataTransfer.files); } });
+$('group').addEventListener('change', (e) => { S.group = e.target.value === 'all' ? 'all' : +e.target.value; run(); });
+$('preset').addEventListener('change', (e) => { if (e.target.value === 'custom') { $('adv').open = true; return; } S.comps = S.presets[+e.target.value].comps.map((c) => Object.assign({}, c)); renderComps(); run(); });
+['len', 'hor'].forEach((id) => $(id).addEventListener('change', run));
+['align', 'dedupe'].forEach((id) => $(id).addEventListener('change', () => { S.overview = null; S.ovRunning = null; run(); }));
+['mapEp', 'mapGroup', 'mapOrder'].forEach((id) => $(id).addEventListener('change', () => { S.mapping = { ep: $('mapEp').value, group: $('mapGroup').value, order: $('mapOrder').value }; try { setDataset(datasetFromTable(S.table, S.mapping, S.tableName)); } catch (err) { setStatus(err.message, true); } }));
+$('addComp').addEventListener('click', () => { try { S.comps = readComps(); } catch (err) { /* keep what parses */ } S.comps.push({ field: S.ds.fields[0].name, dims: [0], cumsum: false }); renderComps(); });
+$('comps').addEventListener('click', (e) => { const i = e.target.dataset.rm; if (i != null && S.comps.length > 1) { S.comps.splice(+i, 1); renderComps(); } });
+$('applyComps').addEventListener('click', () => { try { S.comps = readComps(); $('preset').value = 'custom'; run(); } catch (err) { setStatus(err.message, true); } });
+['fx', 'fy'].forEach((id) => $(id).addEventListener('change', renderFeat));
+['fcolor', 'fstate'].forEach((id) => $(id).addEventListener('change', () => { $('fstate').hidden = $('fcolor').value !== 'search'; renderFeat(); renderTraj(); renderSearch(); renderMani(); }));
+$('srchBars').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-state]');
+  if (!b) return;
+  $('fcolor').value = 'search'; $('fstate').hidden = false;
+  $('fstate').value = $('fstate').value === b.dataset.state ? 'all' : b.dataset.state;
+  renderFeat(); renderTraj(); renderSearch();
+});
+['d0', 'd1', 'd2'].forEach((id, i) => $(id).addEventListener('change', (e) => { S.dims[i] = +e.target.value; renderTraj(); }));
+$('mode3d').addEventListener('click', () => { S.mode = '3d'; renderTraj(); });
+$('modeTs').addEventListener('click', () => { S.mode = 'ts'; renderTraj(); });
+const resampleNow = () => { if (!S.an) return; drawSamples(); renderFeat(); renderTraj(); };
+$('resample').addEventListener('click', resampleNow);
+['smodel', 'sk', 'stemp', 'sn'].forEach((id) => $(id).addEventListener('change', resampleNow));
+['z0', 'z1', 'z2'].forEach((id) => $(id).addEventListener('input', () => { $(id + 'v').textContent = (+$(id).value).toFixed(1) + 'σ'; if (S.an) { renderFeat(); renderTraj(); } }));
+$('zreset').addEventListener('click', () => { ['z0', 'z1', 'z2'].forEach((id) => { $(id).value = 0; $(id + 'v').textContent = '0.0σ'; }); if (S.an) { renderFeat(); renderTraj(); } });
+$('runAll').addEventListener('click', () => { S.overview = null; S.ovRunning = null; runOverview(); });
+$('tbl').addEventListener('click', (e) => { const tr = e.target.closest('tr[data-g]'); if (tr) { S.group = +tr.dataset.g; $('group').value = tr.dataset.g; run(); } });
+
+['mKind', 'mEmbed'].forEach((id) => $(id).addEventListener('change', computeManifold));
+$('mHull').addEventListener('change', renderMani);
+let mDrag = null;
+$('cvMani').addEventListener('pointerdown', (e) => { mDrag = { x: e.clientX, y: e.clientY, moved: 0 }; e.target.setPointerCapture(e.pointerId); });
+$('cvMani').addEventListener('pointermove', (e) => {
+  if (mDrag) {
+    mDrag.moved += Math.abs(e.clientX - mDrag.x) + Math.abs(e.clientY - mDrag.y);
+    S.mYaw += (e.clientX - mDrag.x) * 0.01; S.mPitch = Math.min(1.5, Math.max(-1.5, S.mPitch + (e.clientY - mDrag.y) * 0.01));
+    mDrag.x = e.clientX; mDrag.y = e.clientY; hideTip(); renderMani();
+    return;
+  }
+  const p = S.mani && nearest('cvMani', e, 12);
+  if (p) { showTip(e, describe(p.n) + (S.mani.phase ? `<br>进度 ${(S.mani.phase[p.i] * 100).toFixed(0)}%` : '')); setHover(p.n); } else { hideTip(); setHover(null); }
+});
+$('cvMani').addEventListener('pointerup', (e) => {
+  const click = mDrag && mDrag.moved < 4;
+  mDrag = null;
+  if (!click) return;
+  const p = S.mani && nearest('cvMani', e, 12);
+  if (p) { S.pinned = p.n; S.epHover = null; $('epSel').value = p.n; renderAll(); }
+});
+$('cvMani').addEventListener('pointercancel', () => { mDrag = null; });
+$('cvMani').addEventListener('pointerleave', () => { if (!mDrag) { hideTip(); setHover(null); } });
+$('cvMani').addEventListener('keydown', (e) => { const d = { ArrowLeft: [-0.1, 0], ArrowRight: [0.1, 0], ArrowUp: [0, -0.1], ArrowDown: [0, 0.1] }[e.key]; if (d) { e.preventDefault(); S.mYaw += d[0]; S.mPitch = Math.min(1.5, Math.max(-1.5, S.mPitch + d[1])); renderMani(); } });
+
+$('epSel').addEventListener('change', (e) => { S.pinned = +e.target.value; S.epHover = null; setEvStatus(''); renderAll(); });
+$('evRule').addEventListener('click', () => { if (S.pinned == null) return; const i = S.idx[S.pinned]; S.events.set(S.prep.key + '|' + i, ruleEvents(i)); setEvStatus(''); renderEpisode(); renderTraj(); });
+$('evLlm').addEventListener('click', runLlmEvents);
+$('llmProvider').addEventListener('change', (e) => { const claude = e.target.value === 'claude'; $('llmBaseField').hidden = claude; $('llmModel').value = claude ? 'claude-opus-5-5' : ''; $('llmModel').placeholder = claude ? '' : '填写模型名称'; });
+$('cvEp').addEventListener('pointermove', (e) => {
+  const c = $('cvEp')._ep;
+  if (!c) return;
+  const r = $('cvEp').getBoundingClientRect(), t = Math.round(((e.clientX - r.left - c.L) / (c.R - c.L)) * (c.T - 1));
+  if (t < 0 || t >= c.T) { if (S.epHover != null) { S.epHover = null; renderEpisode(); } hideTip(); return; }
+  if (S.epHover !== t) { S.epHover = t; renderEpisode(); }
+  const sig = S.prep.signals[c.i], seg = episodeSeg(c.i), rec = eventsFor(c.i), names = dimNames(), n = rec.events.findIndex((ev) => t >= ev.start && t <= ev.end);
+  showTip(e, `<b>第 ${t} 步</b>${n >= 0 ? '<br>事件 ' + (n + 1) + '：' + esc(rec.events[n].label) : ''}<br>速度 ${seg.speed[t].toFixed(2)}<br>` + names.slice(0, 14).map((name, d) => `${esc(name)}：${fmt(sig.data[t * sig.D + d])}`).join('<br>'));
+});
+$('cvEp').addEventListener('pointerleave', () => { hideTip(); if (S.epHover != null) { S.epHover = null; renderEpisode(); } });
+
+function setHover(n) { if (S.hover === n) return; S.hover = n; renderFeat(); renderTraj(); renderMani(); renderChunk(); renderWarp(); }
+function describe(n) { const ep = S.ds.episodes[S.idx[n]], sr = curSearch(), res = sr && sr.demos[String(ep.id)]; return `<b>演示 ${esc(ep.id)}</b><br>${esc(S.ds.groups[ep.group])}<br>${ep.T} 步` + (res ? `<br>解出 ${res.reduce((u, v) => u + v, 0)} / ${res.length} 个测试状态` : ''); }
+$('cvFeat').addEventListener('pointermove', (e) => { const p = S.an && nearest('cvFeat', e); if (p) { showTip(e, describe(p.n)); setHover(p.n); } else { hideTip(); setHover(null); } });
+$('cvFeat').addEventListener('pointerleave', () => { hideTip(); setHover(null); });
+$('cvFeat').addEventListener('click', (e) => { const p = S.an && nearest('cvFeat', e); S.pinned = p ? (S.pinned === p.n ? null : p.n) : null; S.epHover = null; if (S.pinned != null) $('epSel').value = S.pinned; renderAll(); });
+$('cvChunk').addEventListener('pointermove', (e) => { const p = S.chunks && nearest('cvChunk', e, 10); if (p) { const n = S.chunks.owner[p.i]; showTip(e, describe(n) + `<br>进度 ${(S.chunks.phase[p.i] * 100).toFixed(0)}%`); setHover(n); } else { hideTip(); setHover(null); } });
+$('cvChunk').addEventListener('pointerleave', () => { hideTip(); setHover(null); });
+for (const id of ['cvSpec', 'cvHeld']) {
+  $(id).addEventListener('pointermove', (e) => {
+    const c = $(id)._chart;
+    if (!c) return;
+    const r = $(id).getBoundingClientRect(), frac = (e.clientX - r.left - c.a.box.l) / (c.a.box.r - c.a.box.l), k = Math.round(c.x0 + frac * (c.kmax - c.x0));
+    if (k < c.x0 || k > c.kmax) { if (S.hoverK[id] != null) { S.hoverK[id] = null; id === 'cvSpec' ? renderSpec() : renderHeld(); } hideTip(); return; }
+    if (S.hoverK[id] !== k) { S.hoverK[id] = k; id === 'cvSpec' ? renderSpec() : renderHeld(); }
+    showTip(e, `<b>k = ${k}</b><br>` + c.series.filter((s) => k - s.x0 < s.y.length).map((s) => `${esc(s.name)}：${s.y[k - s.x0].toFixed(3)}`).join('<br>'));
+  });
+  $(id).addEventListener('pointerleave', () => { S.hoverK[id] = null; hideTip(); if (S.an) (id === 'cvSpec' ? renderSpec() : renderHeld()); });
+}
+let dragging = null;
+$('cvTraj').addEventListener('pointerdown', (e) => { if (S.mode !== '3d' || !S.prep || S.prep.D < 3) return; dragging = { x: e.clientX, y: e.clientY }; e.target.setPointerCapture(e.pointerId); });
+$('cvTraj').addEventListener('pointermove', (e) => { if (!dragging) return; S.yaw += (e.clientX - dragging.x) * 0.01; S.pitch = Math.min(1.5, Math.max(-1.5, S.pitch + (e.clientY - dragging.y) * 0.01)); dragging = { x: e.clientX, y: e.clientY }; renderTraj(); });
+['pointerup', 'pointercancel'].forEach((t) => $('cvTraj').addEventListener(t, () => { dragging = null; }));
+$('cvTraj').addEventListener('keydown', (e) => { const d = { ArrowLeft: [-0.1, 0], ArrowRight: [0.1, 0], ArrowUp: [0, -0.1], ArrowDown: [0, 0.1] }[e.key]; if (d && S.mode === '3d') { e.preventDefault(); S.yaw += d[0]; S.pitch = Math.min(1.5, Math.max(-1.5, S.pitch + d[1])); renderTraj(); } });
+
+let redraw = 0;
+const scheduleRender = () => { cancelAnimationFrame(redraw); redraw = requestAnimationFrame(renderAll); };
+new ResizeObserver(scheduleRender).observe(document.querySelector('.wrap'));
+new MutationObserver(scheduleRender).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', scheduleRender);
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(scheduleRender);
+
+const devLoad = new URLSearchParams(location.search).get('load');
+if (devLoad) fetch(devLoad).then((r) => r.blob()).then((b) => loadFiles([new File([b], devLoad.split('/').pop())]));
+else loadSample('libero_spatial');
+</script>
