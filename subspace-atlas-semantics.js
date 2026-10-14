@@ -11,7 +11,7 @@
 }(typeof globalThis !== 'undefined' ? globalThis : this, function (AtlasCore) {
   'use strict';
 
-  const MIN_DEMOS = 15;
+  const MIN_DEMOS = 2;
   const PERMUTATIONS = 199;
   // Keep spatial/directional words (in, on, under, left, right, to, from, ...).
   const STOPWORDS = new Set(('a an the and then please is are was were be been being ' +
@@ -143,7 +143,7 @@
 
   function analyze(ds, options) {
     options = options || {};
-    if (!AtlasCore || !AtlasCore.splitIndices || !AtlasCore.signalRow || !AtlasCore.signalInfo) {
+    if (!AtlasCore || !AtlasCore.signalRow || !AtlasCore.signalInfo) {
       throw new Error('AtlasSemantics requires subspace-atlas-core.js.');
     }
     if (!ds || !Array.isArray(ds.groups) || !Array.isArray(ds.episodes) || !Array.isArray(ds.fields)) {
@@ -166,11 +166,10 @@
     groups.forEach(function (indices, group) {
       if (indices.length < MIN_DEMOS) {
         skippedGroups.push({ group: group, label: String(ds.groups[group]), count: indices.length,
-          reason: 'fewer_than_15_demonstrations' });
+          reason: 'fewer_than_2_demonstrations' });
         return;
       }
-      const split = AtlasCore.splitIndices(indices.length, seed);
-      const train = Array.from(split.train, function (index) { return indices[index]; });
+      const train = indices.slice();
       const mean = new Float64Array(length * D);
       train.forEach(function (index, count) {
         const row = AtlasCore.signalRow(ds.episodes[index], ds.fields, signal, length);
@@ -213,7 +212,7 @@
       contextual
         ? '探索性语言表征关联：使用外部提供的指令向量计算余弦。页面提供的 Qwen3-4B 向量是纯文本最后层隐藏状态的非特殊、非填充 token 均值；它不是专门校准的句向量，不能证明语义与环境已解耦。'
         : '探索性词汇关联：英文指令经小写分词、停用词过滤和 TF-IDF 后计算余弦；这不是语义嵌入，也不能证明语义与环境已解耦。',
-      '每任务至少 15 条演示；按与主分析相同的固定种子作 60/20/20 整轨迹划分，仅训练部分参与均值和尺度估计。',
+      '每任务至少 2 条演示；每个任务的全部训练示范参与均值和尺度估计，不拆分训练集。种子仅用于任务标签置换。',
       '动作均值使用统一 phase 重采样；所有入选任务的训练轨迹共同估计每通道标准差，再减去等权任务均值的总体均值计算余弦。动作形状相似度可为负。',
       '相关系数取两矩阵上三角。p 值为 199 次整任务标签置换的双侧 Monte Carlo 检验，并用 (极端次数 + 1) / 200 修正；没有把相关任务对当作独立样本。',
       '布局、物体、任务命名和数据来源仍可能混杂；置换检验依赖任务标签可交换假设。多次选择信号或种子后的 p 值不能作为预先指定检验的证据。'
