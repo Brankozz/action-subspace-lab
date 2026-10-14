@@ -33,8 +33,9 @@
         coordinateLabel:'世界坐标 · m', frameKey, frameBounds};
     }
     function chooseScene() {
-      const query = $('querySource').value === 'test' && S.testQuery?.task === S.r.groupName ? S.testQuery : null;
-      return (query && S.sceneData?.queries?.[query.id]) || S.sceneData?.tasks?.[S.r.groupName] || null;
+      // One scene is shared by the task's entire training distribution. An
+      // observation changes sampling weights, never this spatial reference.
+      return S.sceneData?.tasks?.[S.r.groupName] || null;
     }
     function draw() {
       const r = S.r;
@@ -113,16 +114,14 @@
         if (all.length) frameBounds = {min:[0,1,2].map(d => Math.min(...all.map(p => p[d]))), max:[0,1,2].map(d => Math.max(...all.map(p => p[d])))};
         else frameBounds = null;
       }
-      const restored = scene?.provenance?.kind === 'reconstructed_evaluation_initialization';
-      $('sceneSourceTag').textContent = restored ? '评测初态重建' : scene ? '同任务参考布局' : '无场景几何';
-      $('sceneSourceTag').classList.toggle('green', restored);
-      $('sceneSourceNote').textContent = restored
-        ? '根据评测初始化重建，已核对初始 EEF；物体位姿未经独立测量。'
-        : scene ? '取自该任务的 LIBERO 场景模型；不是所选训练示范' + (query ? '或导入测试观察' : '') + '的精确物体位置。'
-          : '当前数据没有匹配的场景文件，仅显示可用的世界坐标轨迹。';
+      $('sceneSourceTag').textContent = scene ? '任务统一场景' : '无场景几何';
+      $('sceneSourceTag').classList.toggle('green', !!scene);
+      $('sceneSourceNote').textContent = scene
+        ? '当前任务的训练全集共用这一布局，用于观察共同成分、变化模式与候选轨迹。切换示范或测试观察时，场景保持不变。'
+        : '当前数据没有匹配的场景文件，仅显示可用的世界坐标轨迹。';
       $('pathDescription').textContent = mapping ? '训练配对映射的 EEF 估计 · 非仿真执行' : decode ? '末端位置子空间 · 世界坐标（米）' : '场景空间参照 · EEF 映射不可用';
       $('scenePathNote').textContent = note + (translate ? ' 已将各条轨迹起点平移至' + anchorName + '；仅改变显示，不改变动作。' : '') + ' 物体保持初态，播放只展示轨迹进度。';
-      lastPayload = {sceneKey:scene?.key || null, sceneProvenance:scene?.provenance || null, frame:'world', units:'meters', method, diagnostics,
+      lastPayload = {sceneKey:scene?.key || null, sceneScope:'task-training-ensemble', sceneProvenance:scene?.provenance || null, frame:'world', units:'meters', method, diagnostics,
         mappingError:mappingError || null, alignment:{enabled:translate, target:translate ? anchor : null, source:translate ? anchorName : null, displayOnly:true},
         relativeOrigin:r.signal === 'relative_eepos' ? Array.from(relativeOrigin || []) : null, paths};
       const payload = {paths, progress, options:options()};
